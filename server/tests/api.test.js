@@ -3,7 +3,7 @@ import request from 'supertest';
 import { connectDb, disconnectDb } from '../src/config/db.js';
 import { createApp } from '../src/app.js';
 import { ensureDemoData } from '../src/seed/seed.js';
-import { getRecentSecurityEvents, clearSecurityEvents, scrubText } from '../src/services/securityLogger.js';
+import { getRecentSecurityEvents, clearSecurityEvents, scrubText, hashForLog } from '../src/services/securityLogger.js';
 
 let ctx;
 let api;
@@ -398,6 +398,91 @@ describe('security hardening', () => {
       password: 'correctPassword123',
     });
     expect(locked.status).toBe(429);
+  });
+
+  it('fails closed on untrusted CORS preflights, allows X-Request-Id same-origin, and blocks asset soft-200 fallbacks', async () => {
+    clearSecurityEvents();
+
+    const blockedOpt = await api
+      .options('/api/auth/login')
+      .set('Origin', 'https://evil.example')
+      .set('Access-Control-Request-Method', 'POST');
+    expect(blockedOpt.status).toBe(403);
+    expect(blockedOpt.headers['access-control-allow-origin']).toBeUndefined();
+    expect(blockedOpt.headers.allow).toBeUndefined();
+    expect(getRecentSecurityEvents().some((e) => e.event === 'cors.origin_denied')).toBe(true);
+
+    const allowedOpt = await api
+      .options('/api/auth/login')
+      .set('Host', 'app.example.com')
+      .set('X-Forwarded-Proto', 'https')
+      .set('Origin', 'https://app.example.com')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'Content-Type, Authorization, X-Request-Id');
+    expect(allowedOpt.status).toBe(204);
+    expect(allowedOpt.headers['access-control-allow-origin']).toBe('https://app.example.com');
+    expect(allowedOpt.headers['access-control-allow-headers']).toContain('X-Request-Id');
+
+    // Missing bundled chunks and fake CSS/JS extensions must return 404 + no-store rather than soft-200 HTML
+    const missingAsset = await api.get('/assets/nonexistent.js');
+    expect(missingAsset.status).toBe(404);
+    expect(missingAsset.headers['cache-control']).toBe('no-store');
+
+    const fakeCss = await api.get('/assistant/evil.css');
+    expect(fakeCss.status).toBe(404);
+    expect(fakeCss.headers['cache-control']).toBe('no-store');
+
+    const htmlRoot = await api.get('/');
+    expect(htmlRoot.status).toBe(200);
+    expect(htmlRoot.headers['cache-control']).toBe('no-store');
+  });
+
+  it('resolves multi-hop Cloudflare+Render client IP accurately and hardens mailbox/simulation email validation', async () => {
+    const prevRender = process.env.RENDER;
+    process.env.RENDER = 'true';
+    try {
+      const cfApp = request(createApp());
+      clearSecurityEvents();
+      await cfApp
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', '1.1.1.1, 198.51.100.42, 172.70.111.1')
+        .send({ email: 'nobody@example.com', password: 'wrongPassword123' });
+      const evt = getRecentSecurityEvents().find((e) => e.event === 'auth.login_failed');
+      expect(evt).toBeTruthy();
+      expect(evt.ipHash).toBe(hashForLog('198.51.100.42'));
+      expect(evt.ipHash).not.toBe(hashForLog('172.70.111.1'));
+      expect(evt.ipHash).not.toBe(hashForLog('1.1.1.1'));
+    } finally {
+      if (prevRender === undefined) delete process.env.RENDER;
+      else process.env.RENDER = prevRender;
+    }
+
+    const badAccountEmail = await api.post('/api/accounts/connect').set(auth(assistant)).send({
+      provider: 'gmail',
+      clientName: 'Bad Dot',
+      clientEmail: 'a..b@example.com',
+    });
+    expect(badAccountEmail.status).toBe(400);
+
+    const badSimEmail = await api.post('/api/conversations/simulate').set(auth(assistant)).send({
+      fromEmail: 'bad@localhost',
+      subject: 'Test validation',
+      body: 'Checking invalid sender email format handling.',
+    });
+    expect(badSimEmail.status).toBe(400);
+
+    const clientThread = await api.post('/api/conversations/simulate').set(auth(assistant)).send({
+      fromName: 'Lead Investor',
+      fromEmail: 'lead@fund.example',
+      subject: 'Urgent Series A equity term sheet approval',
+      body: 'Please sign off personally on the attached investor valuation and equity term sheet.',
+    });
+    expect(clientThread.status).toBe(201);
+    const badChip = await api
+      .post(`/api/conversations/${clientThread.body.conversation.id}/client-action`)
+      .set(auth(client))
+      .send({ action: 'quick_chip', chipIndex: 1.5 });
+    expect(badChip.status).toBe(400);
   });
 
   it('emits redacted structured security logs and threshold alerts without PII or secrets', async () => {

@@ -18,6 +18,7 @@ const ALERT_RULES = {
   'auth.demo_blocked': { windowMs: 5 * 60 * 1000, threshold: 5, reason: 'blocked_demo_probe', owner: 'platform-ops' },
   'authz.role_denied': { windowMs: 5 * 60 * 1000, threshold: 5, reason: 'repeated_role_denial', owner: 'backend-security' },
   'authz.client_scope_denied': { windowMs: 5 * 60 * 1000, threshold: 3, reason: 'client_idor_probe', owner: 'backend-security' },
+  'cors.origin_denied': { windowMs: 5 * 60 * 1000, threshold: 5, reason: 'cors_preflight_probe', owner: 'backend-security' },
   'ratelimit.exceeded': { windowMs: 5 * 60 * 1000, threshold: 3, reason: 'rate_limit_abuse', owner: 'platform-ops' },
   'validation.failed': { windowMs: 5 * 60 * 1000, threshold: 15, reason: 'validation_probe_spike', owner: 'backend-security' },
   'ai.provider_fallback': { windowMs: 5 * 60 * 1000, threshold: 5, reason: 'llm_provider_degraded', owner: 'ai-infra' },

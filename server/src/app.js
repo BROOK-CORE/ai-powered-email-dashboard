@@ -8,15 +8,16 @@ import conversationRoutes from './routes/conversationRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import { activeProvider } from './services/aiService.js';
-import { strictCors, securityHeaders, enforceHttps, createRateLimiter } from './middleware/security.js';
+import { strictCors, securityHeaders, enforceHttps, createRateLimiter, parseProxyHops } from './middleware/security.js';
 import { attachRequestId, logSecurityEvent } from './services/securityLogger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STATIC_ASSET_EXT_RX = /\.(?:js|mjs|css|map|svg|png|jpe?g|webp|gif|ico|woff2?|ttf|eot|json|txt)$/i;
 
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  app.set('trust proxy', parseProxyHops());
   app.set('query parser', 'simple');
 
   app.use(attachRequestId);
@@ -40,8 +41,29 @@ export function createApp() {
   // Serve the built React app (single-service deployment).
   const dist = path.resolve(__dirname, '../../client/dist');
   if (fs.existsSync(dist)) {
-    app.use(express.static(dist));
-    app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')));
+    app.use(
+      express.static(dist, {
+        index: false,
+        setHeaders(res, filePath) {
+          if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else {
+            res.setHeader('Cache-Control', 'no-store');
+          }
+        },
+      })
+    );
+    app.use((req, res, next) => {
+      if ((req.method === 'GET' || req.method === 'HEAD') && (req.path.startsWith('/assets/') || STATIC_ASSET_EXT_RX.test(req.path))) {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      return next();
+    });
+    app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(path.join(dist, 'index.html'));
+    });
   }
 
   // eslint-disable-next-line no-unused-vars

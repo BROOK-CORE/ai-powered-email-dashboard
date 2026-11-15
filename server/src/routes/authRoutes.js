@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { User } from '../models/User.js';
 import { RevokedToken } from '../models/RevokedToken.js';
 import { requireAuth, signToken, asyncHandler } from '../middleware/auth.js';
-import { createRateLimiter } from '../middleware/security.js';
+import { createRateLimiter, isValidEmail } from '../middleware/security.js';
 import { ensureDemoData } from '../seed/seed.js';
 import { hashForLog, logSecurityEvent } from '../services/securityLogger.js';
 
@@ -13,16 +13,6 @@ const authLimiter = createRateLimiter({ name: 'auth', windowMs: 15 * 60 * 1000, 
 const DUMMY_BCRYPT_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
-
-function isValidEmail(email) {
-  return (
-    typeof email === 'string' &&
-    email.length <= 200 &&
-    !email.includes('..') &&
-    /^[^\s@]{1,64}@[^\s@.]+(\.[^\s@.]+)+$/.test(email) &&
-    /\.[a-z]{2,}$/i.test(email)
-  );
-}
 
 router.post(
   '/register',

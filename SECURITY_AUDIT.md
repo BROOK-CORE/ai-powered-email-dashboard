@@ -2,7 +2,7 @@
 
 **Target Application:** Inboxly — AI-Powered Email Management Dashboard (MERN stack: Express 4 API + React 18 SPA + MongoDB/Mongoose)  
 **Audit Scope:** Full source code & configuration audit (`server/`, `client/`, `render.yaml`, `.env.example`, `.gitignore`, git history) plus live HTTP security header findings from the **SecureScanr** scan of `https://ai-powered-email-dashboard.onrender.com` (initial grade **F 0/100**).  
-**Status:** Vulnerabilities identified, explained, fixed across the backend/frontend codebase, and verified with automated regression tests (`24/24` passing in Vitest + production Vite build).
+**Status:** Vulnerabilities identified, explained, fixed across the backend/frontend codebase, audited against Cloudflare edge/TLS/proxy protocols + Render/Atlas read-only platform checks + local strict-CSP browser E2E, and verified with automated regression tests (`26/26` passing in Vitest + production Vite build).
 
 ---
 
@@ -24,6 +24,8 @@
 | SEC-12 | Missing `Permissions-Policy`, `Referrer-Policy`, `COOP`, `CORP`, and `/api` `Cache-Control: no-store` | Configuration | **Low** | **Fixed** |
 | SEC-13 | Missing server logout revocation (`jti`), per-account lockout, login timing parity & cross-tab sync | Auth / Session | **High / Medium** | **Fixed** |
 | SEC-14 | Raw error dumps (`[error] err`), missing structured security logging, unmasked LLM query-key risk & alert thresholds | Logging / Monitoring | **Medium** | **Fixed** |
+| SEC-15 | Cloudflare+Render `trust proxy` hop mismatch, fail-open untrusted `OPTIONS` (`Allow: POST`), asset soft-200 cache deception & ununified email/chip validators | Cloudflare / Edge / Validation | **Medium / Low** | **Fixed** |
+| PLAT-01 | MongoDB Atlas runtime user `inboxlyapp` granted cluster-wide `atlasAdmin` role; Render Log Drain & `LOG_SALT`/`SECURITY_ALERT_WEBHOOK_URL` unset | Platform / IAM / Ops | **High (IAM)** | **Action Needed in Atlas/Render UI** |
 
 ---
 
@@ -189,6 +191,57 @@
 
 ---
 
+### SEC-15: Cloudflare Multi-Hop Proxy Resolution, CORS Preflight Hardening, Anti-Cache-Deception & Input Parity
+- **Severity:** Medium / Low
+- **Original Evidence:**
+  - `server/src/app.js` line 19: `app.set('trust proxy', 1)` — live traffic traverses **two** hops (`Client -> Cloudflare CDN -> Render Proxy -> Express`), causing 1-hop resolution to rate-limit/log Cloudflare edge PoP IPs rather than visitor IPs.
+  - `server/src/middleware/security.js`: untrusted `OPTIONS /api/auth/login` (`Origin: https://evil.example`) fell through `cors` to Express auto-`OPTIONS`, returning `200 OK`, `Allow: POST`, and body `POST`; trusted `allowedHeaders` omitted `X-Request-Id`.
+  - `server/src/app.js`: unmatched `/assets/nonexistent.js` and `/assistant/evil.css` fell through `express.static` to `app.get('*', ...)` returning `200 text/html` (`Cache-Control: public, max-age=0`), creating a soft-200 Web Cache Deception pattern if static extension caching rules were ever added at Cloudflare.
+  - `server/src/routes/accountRoutes.js` line 45 used permissive `/^\S+@\S+\.\S+$/`, and `server/src/routes/conversationRoutes.js` lacked `isValidEmail` check on `fromEmail` and integer check on `chipIndex`.
+- **Changes Made:**
+  - Added `parseProxyHops()` in [security.js](server/src/middleware/security.js) (`TRUST_PROXY_HOPS` override `1..10`, defaulting to `2` when `process.env.RENDER === 'true'` behind Cloudflare+Render, `1` otherwise) and applied it in [app.js](server/src/app.js).
+  - Updated `strictCors` in [security.js](server/src/middleware/security.js) to fail closed (`403 Forbidden`, `Vary: Origin`, `Cache-Control: no-store`, logged as `cors.origin_denied` with alert rule) on disallowed `OPTIONS` preflights while allowing `X-Request-Id` on trusted origins.
+  - Updated static serving in [app.js](server/src/app.js) (`index: false`, `immutable` only on built `/assets/`, strict `404` + `no-store` for unmatched `/assets/*` or static file extensions before SPA fallback, and `Cache-Control: no-store` on HTML responses).
+  - Shared `isValidEmail()` across [authRoutes.js](server/src/routes/authRoutes.js), [accountRoutes.js](server/src/routes/accountRoutes.js), and [conversationRoutes.js](server/src/routes/conversationRoutes.js), plus `Number.isInteger` validation on `quick_chip` `chipIndex`.
+
+---
+
+## Cloudflare Protocol, Infrastructure & Full-Stack Verification Audits
+
+### Cloudflare Edge & Transport Protocol Audit (`https://ai-powered-email-dashboard.onrender.com`)
+| Protocol / Control | Observed Behavior | Status |
+|---|---|---|
+| **DNS / Anycast Routing** | `ai-powered-email-dashboard.onrender.com` -> `gcp-us-west1-1.origin.onrender.com` -> `cdn.cloudflare.net` (`216.24.57.16`, `216.24.57.18` via `1.1.1.1`) | Verified |
+| **CAA Records (`onrender.com`)** | Restricts issuance to `digicert.com`, `letsencrypt.org`, `pki.goog` (`issue`/`issuewild`) + `iodef` reporting | Pass |
+| **DNSSEC & IPv6 (`AAAA`)** | `AD: false` (DNSSEC unsigned) and no `AAAA` IPv6 records on parent Render zone | Platform-Controlled |
+| **Legacy TLS Rejection (`@SECLEVEL=0`)** | `TLSv1` & `TLSv1.1` actively rejected with `ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION` (Alert `70`) | Pass |
+| **Modern TLS & ALPN (`h2`)** | `TLSv1.3` (`TLS_AES_256_GCM_SHA384`, `X25519`) & `TLSv1.2` (`ECDHE-ECDSA-AES128-GCM-SHA256`), Google Trust Services `WE1` cert (`*.onrender.com`, valid until Dec 20 2026) | Pass |
+| **HTTP/3 (QUIC) & HTTP/2** | HTTP/2 active (`CF_CACHE: DYNAMIC`, `CF-RAY`); `Alt-Svc: h3=":443"; ma=86400` advertised | Pass |
+| **Plain HTTP -> HTTPS Edge Redirect** | `http://` on `/` and `/api/health` returns edge `301 Moved Permanently` -> `https://...` without premature HSTS | Pass |
+| **Host-Spoofing / Domain Fronting** | TLS SNI `ai-powered-email-dashboard.onrender.com` with `Host: evil.example` blocked at edge (`403 Forbidden`, Cloudflare) | Pass |
+| **HTTP `TRACE` Method** | Blocked at Cloudflare edge (`405 Not Allowed`) before reaching Express | Pass |
+| **Web Cache Deception (`/api/*` & `/assets/*`)** | `/api/health/test.css` & `/api/auth/me/evil.css` return `404 JSON` (`no-store`, `CF-Cache-Status: DYNAMIC`); unmatched `/assets/*` & `/*.css` hardened from soft-200 to `404` + `no-store` (SEC-15) | Fixed & Verified |
+| **CORS Preflight (`OPTIONS`)** | Untrusted `Origin` hardened from `200`/`Allow: POST` to fail-closed `403`; `X-Request-Id` added to allowed headers (SEC-15) | Fixed & Verified |
+
+### Render & MongoDB Atlas Read-Only Platform Audit
+- **Render Dashboard (`srv-dbst3poae00c7390mg2g`):**
+  - Plan: `Free`; Auto-Deploy: `On Commit`; Health Check: `/api/health`; Log Streams/Drains: **0 configured** (stdout logs remain ephemeral until connected to an external log drain).
+  - Configured env key names: `JWT_SECRET`, `MONGODB_URI`, `NODE_ENV=production`.
+  - Unset optional keys: `DISABLE_DEMO_LOGIN` (demo buttons active for showcase), `LOG_SALT` (HMAC hashing falls back to `JWT_SECRET`), `SECURITY_ALERT_WEBHOOK_URL` (no external alert webhook), `ALLOWED_ORIGINS` / `PUBLIC_API_ORIGIN`, and `GROQ_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` (heuristic AI active).
+- **MongoDB Atlas (`Cluster0`, M0 Sandbox, AWS `ap-south-1`, MongoDB `8.0.37`):**
+  - TLS: Mandatory `mongodb+srv://` TLS 1.2+ in transit; Backups: Inactive (`M0` Free limitation).
+  - Collections (`ai_email_dashboard`): `conversations` **0 docs**, `notifications` **0 docs**, `emailaccounts` **2 docs**, `users` **2 docs**, `revokedtokens` **1 doc** *(confirms live logout `jti` TTL revocation works in Atlas)*.
+  - Network Access: `0.0.0.0/0` Active *(required on Render Free dynamic egress IPs; remove stale setup IP `223.185.17.173/32` if unneeded or migrate to Render static egress + Atlas IP allowlist)*.
+  - **IAM Finding (`PLAT-01`, High):** Application database user `inboxlyapp` holds cluster-wide `atlasAdmin` privileges instead of least-privilege `readWrite` scoped only to `ai_email_dashboard` *(change in Atlas Database Access UI)*.
+
+### Local Strict-CSP Full-Stack Browser E2E Audit (`http://localhost:5055`)
+- Verified an isolated production-mode server (`NODE_ENV=production`, `SEED_DEMO_MESSAGES=true`, in-memory MongoDB) end-to-end in headless Chromium with `0` console errors, `0` `securitypolicyviolation` CSP events, and `0` React inline `style=` DOM attributes across:
+  - Registration + `/onboarding` -> `ConnectWizard` (sync progress bar under strict `style-src 'self'`).
+  - `/assistant` + `ThreadDetail` (`Draft with AI`) + `CopilotDrawer` (`Ask AI`) + `SimulateModal` + `/accounts` + sign-out revocation (`POST /api/auth/logout`).
+  - `/login` (`Demo as Assistant` / `Demo as Client`) + `/client` (`DecisionCard`, quick-chip send, toast `.animate-drain`, and dictation mic toggle verifying `.animate-pulse-ring` class without inline styles).
+
+---
+
 ## Security Logging & Alerting Event Plan
 
 Structured JSON logs are written via [securityLogger.js](server/src/services/securityLogger.js) (`channel: "security"`), correlated per request with `X-Request-Id`, and pseudonymized via `hashForLog()`. Forward production stdout to an external Render log drain (7–30 day hot retention; 90-day cold archive; restricted RBAC ops/security access only).
@@ -217,20 +270,19 @@ Structured JSON logs are written via [securityLogger.js](server/src/services/sec
 
 ## Verification Summary (Post-Fix & Live Deploy)
 
-- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`24 passed (24)`** tests (including security regression tests covering HTTP headers, HTTPS-only HSTS + strict production `style-src` CSP, forwarded plain-HTTP `308` redirect, strict CORS rejection, client-role IDOR blocks, NoSQL/input-type rejection, logout JWT revocation, password change invalidation, per-account login lockout, and structured redacted security logging + alerts).
+- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`26 passed (26)`** tests (covering HTTP security headers, HTTPS-only HSTS + strict production `style-src` CSP, forwarded plain-HTTP `308` redirect, Cloudflare+Render multi-hop `trust proxy` resolution, fail-closed `403` untrusted `OPTIONS` preflight, missing-asset `404` + `no-store` anti-Cache-Deception, client-role IDOR blocks, NoSQL/input-type/email/chipIndex validation, logout JWT revocation, password change invalidation, per-account login lockout, and structured redacted security logging + alerts).
 - **Production Client Build (`npm --workspace=client run build`):** Succeeded (`1590 modules transformed`, emitted `dist/index.html`, `dist/assets/index-BgzVoo8n.js`, and `dist/assets/index-BCOPZ59g.css` — zero inline `<script>` or `style=` attributes, compatible with strict `script-src 'self'` and `style-src 'self'`).
-- **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`, deploy `dep-dbsuphvf3r2c73benvtg` / commit `18bac4d`):** Verified live HTTPS response headers on `/`, `/assets/index-BgzVoo8n.js`, and `/api/health` confirm `X-Request-Id` correlation headers, `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; ...` (zero `'unsafe-inline'`), `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cache-Control: no-store` on `/api/*`, `ratelimit-limit: 300`, absence of `X-Powered-By`, and live UI health (`All active · 0`, zero console errors).
+- **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`):** Confirmed strict CSP (`default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; ...`), HSTS, `X-Request-Id`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP, `Cache-Control: no-store` on `/api/*` and HTML, `404` on missing static/asset paths, `403` on untrusted CORS preflight, edge TLS 1.2/1.3 (TLS 1.0/1.1 rejected), HTTP/2 + `Alt-Svc: h3`, Host-spoof blocking (`403`), `TRACE` blocking (`405`), and live `/assistant`, `/client`, `/accounts` rendering cleanly with `0` messages (`All active · 0`) and `0` console errors.
 - **Recommended Follow-Up Header & Cookie Checks:**
   - *Cookies:* Currently **N/A** (sessions use Bearer JWTs in `localStorage`, zero `Set-Cookie` emitted); migrate to `HttpOnly; Secure; SameSite=Lax; Path=/` + CSRF checks only if cookie sessions become required.
   - *CSP Reporting & Split-Origin:* Add `report-to` / `Reporting-Endpoints` if real-user telemetry is needed; `connect-src` expands safely only when `ALLOWED_ORIGINS` / `PUBLIC_API_ORIGIN` is configured.
 
 ---
 
-## Areas Not Verified Due to Lack of Access
+## Areas Not Verified Due to Lack of Access / Remaining Environment Limitations
 
-1. **Third-Party SecureScanr Re-Scan Score:** Direct HTTP header checks against `https://ai-powered-email-dashboard.onrender.com/` and `/api/health` confirmed all remediated headers are live in production, though an interactive re-scan inside the external SecureScanr web UI was not re-triggered.
-2. **Render Dashboard Secret Environment Variables:** Could not directly read or audit the live `JWT_SECRET` strength or other encrypted environment variable values currently stored inside Render service `srv-dbst3poae00c7390mg2g`.
-3. **MongoDB Atlas Infrastructure & Audit Logs:** Could not inspect Atlas TLS cipher suites, database audit logs, VPC peering/private endpoints, or verify whether `0.0.0.0/0` Network Access should be narrowed to Render's outbound static IP list (paid feature) instead of open `0.0.0.0/0`.
-4. **Cloudflare / Render Upstream Proxy Header Manipulation:** SecureScanr reported `Server: cloudflare`; upstream CDN/proxy header overrides, DDoS/WAF rules, and edge TLS certificates on `.onrender.com` are controlled by Render/Cloudflare and cannot be modified from Express.
-5. **Live External LLM Provider API Behavior (`Groq` / `Gemini` / `OpenAI`):** All external LLM API keys are currently unset (`heuristic` engine active), so live prompt-injection behavior and TLS/timeout handling against third-party LLM endpoints were not tested at runtime.
-6. **Persistent Distributed Rate Limiting:** The in-memory IP rate limiter protects a single Node.js instance; multi-instance horizontal scaling or shared Render IP pools without Redis cannot be stress-tested here.
+1. **Third-Party SecureScanr Re-Scan Score:** Direct HTTP header checks and Cloudflare edge tests confirmed all remediated headers live, while no interactive external SecureScanr web-scanner session was re-run.
+2. **Secret Values Inside Render Environment Variables:** Only key names (`JWT_SECRET`, `MONGODB_URI`, `NODE_ENV`) were inspected read-only; encrypted secret contents and actual `JWT_SECRET` randomness cannot be viewed without decrypting them.
+3. **Atlas Least-Privilege User (`PLAT-01`), Backups & Dedicated Egress IPs:** `inboxlyapp` remains `atlasAdmin` in Atlas Database Access until narrowed manually to `readWrite` on `ai_email_dashboard`, automated backups require upgrading off M0 Sandbox, and narrowing `0.0.0.0/0` requires static Render egress IPs.
+4. **Live External LLM Provider Endpoints (`Groq` / `Gemini` / `OpenAI`) & Alert Webhooks:** `ai` runs in `heuristic` mode with no external LLM keys configured, and neither `SECURITY_ALERT_WEBHOOK_URL` nor a Render Log Stream drain is connected to test external SIEM/alert delivery.
+5. **Multi-Instance / Distributed Load Stress:** Rate limits and alert counters remain in-memory per Render Free instance and were not load-tested across horizontally scaled containers without Redis.

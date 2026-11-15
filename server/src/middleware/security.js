@@ -43,26 +43,63 @@ export function enforceHttps(req, res, next) {
   return res.status(426).json({ error: 'HTTPS is required' });
 }
 
-/** Strict CORS policy: rejects wildcard (*) and permits only same-host, configured origins, or dev servers. */
-export const strictCors = cors((req, cb) => {
+function isOriginAllowed(req, origin) {
+  if (!origin) return false;
+  const host = req.get('host');
+  const proto = req.headers['x-forwarded-proto']?.split(',')[0]?.trim().toLowerCase() || req.protocol;
+  const sameOrigin = host ? `${proto}://${host}` === origin : false;
+  return sameOrigin || allowedOrigins().has(origin) || (process.env.NODE_ENV !== 'production' && DEV_ORIGINS.has(origin));
+}
+
+const corsHandler = cors((req, cb) => {
   const origin = req.headers.origin;
   if (!origin) return cb(null, { origin: false });
-
-  const host = req.get('host');
-  const proto = req.headers['x-forwarded-proto']?.split(',')[0]?.trim() || req.protocol;
-  const sameOrigin = host ? `${proto}://${host}` === origin : false;
-  const allow = sameOrigin || allowedOrigins().has(origin) || (process.env.NODE_ENV !== 'production' && DEV_ORIGINS.has(origin));
-
   return cb(null, {
-    origin: allow,
+    origin: isOriginAllowed(req, origin),
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    exposedHeaders: ['X-Request-Id'],
   });
 });
 
+/** Strict CORS policy: fails closed (403) on disallowed OPTIONS preflight and omits wildcard CORS headers. */
+export function strictCors(req, res, next) {
+  const origin = req.headers.origin;
+  if (req.method === 'OPTIONS' && origin && !isOriginAllowed(req, origin)) {
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Cache-Control', 'no-store');
+    logSecurityEvent({
+      event: 'cors.origin_denied',
+      severity: 'warn',
+      outcome: 'denied',
+      req,
+      meta: { reason: 'untrusted_cors_preflight', status: 403 },
+    });
+    return res.status(403).json({ error: 'CORS origin not allowed' });
+  }
+  return corsHandler(req, res, next);
+}
+
+/** Resolve trusted reverse-proxy hop count (Render terminates behind Cloudflare edge by default). */
+export function parseProxyHops() {
+  const raw = Number(process.env.TRUST_PROXY_HOPS);
+  if (Number.isInteger(raw) && raw >= 1 && raw <= 10) return raw;
+  return process.env.RENDER === 'true' ? 2 : 1;
+}
+
+export function isValidEmail(email) {
+  return (
+    typeof email === 'string' &&
+    email.length <= 200 &&
+    !email.includes('..') &&
+    /^[^\s@]{1,64}@[^\s@.]+(\.[^\s@.]+)+$/.test(email) &&
+    /\.[a-z]{2,}$/i.test(email)
+  );
+}
+
 /** HTTP hardening headers protecting against XSS, clickjacking, MIME-sniffing, and protocol downgrade. */
 export function securityHeaders(req, res, next) {
-  const isHttps = req.secure || req.headers['x-forwarded-proto']?.split(',')[0]?.trim() === 'https';
+  const isHttps = req.secure || req.headers['x-forwarded-proto']?.split(',')[0]?.trim().toLowerCase() === 'https';
   const styleDirective =
     process.env.NODE_ENV === 'production'
       ? "style-src 'self' https://fonts.googleapis.com"

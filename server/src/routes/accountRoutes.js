@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { EmailAccount } from '../models/EmailAccount.js';
 import { Conversation } from '../models/Conversation.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
-import { isObjectId } from '../middleware/security.js';
+import { isObjectId, isValidEmail } from '../middleware/security.js';
 import { seedAccountInbox, providerColor } from '../seed/seed.js';
 import { logSecurityEvent } from '../services/securityLogger.js';
 
@@ -42,7 +42,7 @@ router.post(
     }
     const cleanName = clientName.trim().slice(0, 120);
     const cleanEmail = clientEmail.trim().toLowerCase();
-    if (!/^\S+@\S+\.\S+$/.test(cleanEmail) || cleanEmail.length > 200) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (!isValidEmail(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
     if (await EmailAccount.findOne({ ownerId: req.ownerId, clientEmail: cleanEmail, provider })) {
       return res.status(409).json({ error: 'This mailbox is already connected' });
     }

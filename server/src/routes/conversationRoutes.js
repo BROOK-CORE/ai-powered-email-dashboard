@@ -3,7 +3,7 @@ import { Conversation } from '../models/Conversation.js';
 import { EmailAccount } from '../models/EmailAccount.js';
 import { Notification } from '../models/Notification.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
-import { createRateLimiter, isObjectId } from '../middleware/security.js';
+import { createRateLimiter, isObjectId, isValidEmail } from '../middleware/security.js';
 import { analyzeConversation, refreshSnippet, notify, findOwned, segmentQuery } from '../services/conversationService.js';
 import { draftReply, expandQuickIntentToReply, audioBrief } from '../services/aiService.js';
 import { logSecurityEvent } from '../services/securityLogger.js';
@@ -243,7 +243,8 @@ router.post(
     if (typeof body !== 'string' || body.trim().length < 5) return res.status(400).json({ error: 'Write the email body to simulate' });
     const cleanBody = body.trim().slice(0, 15000);
     const cleanFromName = typeof fromName === 'string' ? fromName.trim().slice(0, 120) : '';
-    const cleanFromEmail = typeof fromEmail === 'string' ? fromEmail.trim().slice(0, 200) : '';
+    const cleanFromEmail = typeof fromEmail === 'string' ? fromEmail.trim().toLowerCase().slice(0, 200) : '';
+    if (cleanFromEmail && !isValidEmail(cleanFromEmail)) return res.status(400).json({ error: 'Enter a valid sender email' });
 
     let conv;
     let created = false;
@@ -334,7 +335,8 @@ router.post(
         break;
       }
       case 'quick_chip': {
-        const chip = conv.quickActionChips?.[Number(chipIndex)];
+        const idx = Number(chipIndex);
+        const chip = Number.isInteger(idx) && idx >= 0 ? conv.quickActionChips?.[idx] : null;
         if (!chip) return res.status(400).json({ error: 'Unknown action' });
         const body = await expandQuickIntentToReply(conv, chip.intentPrompt);
         await sendAsClient(conv, req, body);
