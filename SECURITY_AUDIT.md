@@ -189,6 +189,22 @@
 
 ---
 
+## Security Logging & Alerting Event Plan
+
+Structured JSON logs are written via [securityLogger.js](server/src/services/securityLogger.js) (`channel: "security"`), correlated per request with `X-Request-Id`, and pseudonymized via `hashForLog()`. Forward production stdout to an external Render log drain (7–30 day hot retention; 90-day cold archive; restricted RBAC ops/security access only).
+
+| Event Category | Event Names | Minimum Useful Fields | Never Logged | Alert Threshold | Owner | Response Action |
+|---|---|---|---|---|---|---|
+| **Auth & Recovery** | `auth.register_*`, `auth.login_success`, `auth.login_failed`, `auth.account_locked`, `auth.demo_*`, `auth.logout`, `auth.password_changed` | `ts`, `requestId`, `ipHash`, `emailHash`, `actorId`, `actorRole`, `outcome`, `reason`, `count` | Raw passwords, hashes, JWTs, `Authorization` headers, raw email addresses, raw IPs | `auth.login_failed` >= 5 / 5m or `auth.account_locked` >= 1 | Backend / SecOps | Inspect `ipHash`/`emailHash` pattern; disable demo logins (`DISABLE_DEMO_LOGIN=true`) or verify lockout recovery if targeted |
+| **Authorization Denials** | `auth.token_rejected`, `authz.role_denied`, `authz.client_scope_denied` | `ts`, `requestId`, `method`, `path`, `ipHash`, `actorId`, `actorRole`, `targetId`, `reason` | Bearer token contents, email subjects/bodies, client notes | `client_scope_denied` >= 3 / 5m or `role_denied` >= 5 / 5m | Backend Security | Audit user session & revoke token (`allSessions` / `tokenVersion` bump) if sustained IDOR/role probing |
+| **Validation Failures** | `validation.failed`, `transport.plain_http` | `ts`, `requestId`, `path`, `ipHash`, `field`, `rule`, `status` | Raw rejected values, request bodies, search terms, Host strings | `>= 15` / 5m per `ipHash` | Backend Security | Block abusing IP at Cloudflare/WAF edge; confirm input validators hold |
+| **Privilege & Admin Actions** | `privilege.responsibility_override`, `admin.workspace_cleared`, `admin.account_connected`, `admin.account_deleted`, `admin.onboarding_completed` | `ts`, `requestId`, `actorId`, `actorRole`, `targetId`, `from`, `to`, `provider`, `deletedConversations` | Thread subjects, message bodies, customer emails, draft text | `workspace_cleared` >= 1 or `account_deleted` >= 1 (`alert: true`) | Workspace Owner / Ops | Confirm action was intentional; restore from Atlas backup if unauthorized |
+| **Webhooks (Outbound / Future Inbound)** | Outbound `SECURITY_ALERT_WEBHOOK_URL` (no inbound mail/billing webhooks exist yet) | URL delivery fails closed without leaking credentials | Webhook secrets, signing headers, customer email bodies | Add `webhook.signature_invalid` alert >= 3 / 5m when inbound webhooks are built | Platform Ops | Verify signing secret rotation & webhook source IP allowlist before processing payloads |
+| **Rate-Limit & Unusual Usage** | `ratelimit.exceeded`, `ai.provider_fallback` | `ts`, `requestId`, `ipHash`, `limiter`, `max`, `windowMs`, `provider`, scrubbed `reason` | Raw AI prompts, `?key=...` query secrets, bearer tokens | `ratelimit.exceeded` >= 3 / 5m or `ai.provider_fallback` >= 5 / 5m | Platform Ops / AI Infra | Verify external AI key quota/billing, tune WAF rules, confirm heuristic fallback stays healthy |
+| **Sensitive Config Changes** | Platform env vars (`JWT_SECRET`, `MONGODB_URI`, `ALLOWED_ORIGINS`, `DISABLE_DEMO_LOGIN`, LLM keys) | Render audit trail (actor, timestamp, variable key name) | Secret values or connection URIs | Any change to `JWT_SECRET` or `DISABLE_DEMO_LOGIN` in prod | Repo / Render Admin | Verify change ticket; rotate sessions (`tokenVersion`) if `JWT_SECRET` rotated unexpectedly |
+
+---
+
 ## Checks That Passed (No Vulnerability Found)
 
 - **Git History & Client Secret Exposure (`git log -p --all` & `client/` scan):** Confirmed zero API keys (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`), zero `MONGODB_URI` connection strings, and zero `.env` files exist in client source/build bundles or git commit history (`.env` is gitignored).
@@ -201,7 +217,10 @@
 
 - **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`24 passed (24)`** tests (including security regression tests covering HTTP headers, HTTPS-only HSTS + strict production `style-src` CSP, forwarded plain-HTTP `308` redirect, strict CORS rejection, client-role IDOR blocks, NoSQL/input-type rejection, logout JWT revocation, password change invalidation, per-account login lockout, and structured redacted security logging + alerts).
 - **Production Client Build (`npm --workspace=client run build`):** Succeeded (`1590 modules transformed`, emitted `dist/index.html` with external bundled assets only — compatible with `script-src 'self'`).
-- **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`):** Verified live HTTP response headers on `/` and `/api/health` confirm `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cache-Control: no-store` on `/api/*`, `ratelimit-limit: 300`, absence of `X-Powered-By`, rejection of untrusted cross-origin `Origin` headers, and `401 Unauthorized` on unauthenticated `/api/conversations`.
+- **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`):** Verified live HTTPS response headers on `/`, `/assets/index-B1j3h2S0.js`, and `/api/health` confirm `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; ...` (zero `'unsafe-inline'`), `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cache-Control: no-store` on `/api/*`, `ratelimit-limit: 300`, `http://` -> `301 Moved Permanently` -> `https://` redirect, absence of `X-Powered-By`, rejection of untrusted cross-origin `Origin` headers, and `401 Unauthorized` on unauthenticated `/api/conversations` and `/api/auth/logout`.
+- **Recommended Follow-Up Header & Cookie Checks:**
+  - *Cookies:* Currently **N/A** (sessions use Bearer JWTs in `localStorage`, zero `Set-Cookie` emitted); migrate to `HttpOnly; Secure; SameSite=Lax; Path=/` + CSRF checks only if cookie sessions become required.
+  - *CSP Reporting & Split-Origin:* Add `report-to` / `Reporting-Endpoints` if real-user telemetry is needed; `connect-src` expands safely only when `ALLOWED_ORIGINS` / `PUBLIC_API_ORIGIN` is configured.
 
 ---
 
