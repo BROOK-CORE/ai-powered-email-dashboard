@@ -1,21 +1,23 @@
 import { Router } from 'express';
 import { Conversation } from '../models/Conversation.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
+import { createRateLimiter, isObjectId } from '../middleware/security.js';
 import { answerInboxQuery } from '../services/aiService.js';
 
 const router = Router();
-router.use(requireAuth, requireAssistant);
+router.use(requireAuth, requireAssistant, createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 }));
 
 router.post(
   '/query',
   asyncHandler(async (req, res) => {
-    const question = String(req.body?.question || '').trim();
-    if (question.length < 2) return res.status(400).json({ error: 'Ask a question about your inbox' });
+    const rawQ = req.body?.question;
+    if (typeof rawQ !== 'string' || rawQ.trim().length < 2) return res.status(400).json({ error: 'Ask a question about your inbox' });
+    const question = rawQ.trim().slice(0, 500);
     const { conversationId } = req.body || {};
     let convs = await Conversation.find({ ownerId: req.ownerId, status: { $in: ['open', 'waiting_response', 'completed'] } }).sort({ lastMessageAt: -1 }).limit(80);
 
     // Thread-scoped questions ("summarize this conversation", "why was this assigned to the client?").
-    if (conversationId && /^[a-f\d]{24}$/i.test(conversationId)) {
+    if (conversationId && isObjectId(conversationId)) {
       const focus = convs.find((c) => String(c._id) === conversationId);
       if (focus && /(this|conversation|thread|email)/i.test(question) && /(summar|why|explain|what)/i.test(question)) {
         const why = /why/i.test(question);

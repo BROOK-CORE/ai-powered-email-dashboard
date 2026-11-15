@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { EmailAccount } from '../models/EmailAccount.js';
 import { Conversation } from '../models/Conversation.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
+import { isObjectId } from '../middleware/security.js';
 import { seedAccountInbox, providerColor } from '../seed/seed.js';
 
 const router = Router();
@@ -35,15 +36,19 @@ router.post(
   asyncHandler(async (req, res) => {
     const { provider, clientName, clientEmail, connectionType } = req.body || {};
     if (!['gmail', 'outlook', 'custom_api'].includes(provider)) return res.status(400).json({ error: 'Unsupported provider' });
-    if (!clientName || !clientEmail) return res.status(400).json({ error: 'Client name and email are required' });
-    if (!/^\S+@\S+\.\S+$/.test(clientEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
-    if (await EmailAccount.findOne({ ownerId: req.ownerId, clientEmail: String(clientEmail).toLowerCase(), provider })) {
+    if (typeof clientName !== 'string' || typeof clientEmail !== 'string' || !clientName.trim() || !clientEmail.trim()) {
+      return res.status(400).json({ error: 'Client name and email are required' });
+    }
+    const cleanName = clientName.trim().slice(0, 120);
+    const cleanEmail = clientEmail.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail) || cleanEmail.length > 200) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (await EmailAccount.findOne({ ownerId: req.ownerId, clientEmail: cleanEmail, provider })) {
       return res.status(409).json({ error: 'This mailbox is already connected' });
     }
     const account = await EmailAccount.create({
       ownerId: req.ownerId,
-      clientName: String(clientName).trim(),
-      clientEmail: String(clientEmail).toLowerCase(),
+      clientName: cleanName,
+      clientEmail: cleanEmail,
       provider,
       connectionType: connectionType === 'api_key_bridge' || provider === 'custom_api' ? 'api_key_bridge' : 'oauth_simulated',
       status: 'syncing',
@@ -57,6 +62,7 @@ router.post(
 router.post(
   '/:id/sync',
   asyncHandler(async (req, res) => {
+    if (!isObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid account id' });
     const account = await EmailAccount.findOne({ _id: req.params.id, ownerId: req.ownerId });
     if (!account) return res.status(404).json({ error: 'Account not found' });
     account.lastSyncedAt = new Date();
@@ -69,6 +75,7 @@ router.post(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
+    if (!isObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid account id' });
     const account = await EmailAccount.findOne({ _id: req.params.id, ownerId: req.ownerId });
     if (!account) return res.status(404).json({ error: 'Account not found' });
     await Conversation.deleteMany({ accountId: account._id });

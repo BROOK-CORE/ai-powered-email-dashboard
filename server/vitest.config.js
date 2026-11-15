@@ -15,7 +15,7 @@ export default defineConfig({
       GROQ_API_KEY: '',
       GEMINI_API_KEY: '',
       OPENAI_API_KEY: '',
-      JWT_SECRET: 'test-secret',
+      JWT_SECRET: 'test-secret-key-for-vitest-only',
     },
   },
 });

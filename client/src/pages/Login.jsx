@@ -110,7 +110,7 @@ export default function Login() {
           <form onSubmit={submit} className="space-y-4" noValidate>
             {mode === 'register' && <Field label="Your name" value={f.name} onChange={set('name')} autoComplete="name" placeholder="Maya Lin" />}
             <Field label="Email" type="email" value={f.email} onChange={set('email')} autoComplete="email" placeholder="you@company.com" />
-            <Field label="Password" type="password" value={f.password} onChange={set('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 6 characters" />
+            <Field label="Password" type="password" value={f.password} onChange={set('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 8 characters" />
             {error && (
               <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {error}

@@ -3,6 +3,7 @@ import { Conversation } from '../models/Conversation.js';
 import { EmailAccount } from '../models/EmailAccount.js';
 import { Notification } from '../models/Notification.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
+import { createRateLimiter, isObjectId } from '../middleware/security.js';
 import { analyzeConversation, refreshSnippet, notify, findOwned, segmentQuery } from '../services/conversationService.js';
 import { draftReply, expandQuickIntentToReply, audioBrief } from '../services/aiService.js';
 
@@ -11,6 +12,8 @@ router.use(requireAuth);
 
 const UNDO_WINDOW_MS = 5000;
 const ACTIVE = { $in: ['open', 'waiting_response'] };
+const VALID_TONES = ['professional', 'concise', 'warm', 'executive'];
+const aiActionLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 });
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -108,11 +111,14 @@ router.get(
   requireAssistant,
   asyncHandler(async (req, res) => {
     const { segment, accountId, search, needsReview } = req.query;
-    const q = { ownerId: req.ownerId, ...segmentQuery(segment) };
+    if (accountId !== undefined && accountId !== '' && !isObjectId(accountId)) {
+      return res.status(400).json({ error: 'Invalid accountId' });
+    }
+    const q = { ownerId: req.ownerId, ...segmentQuery(typeof segment === 'string' ? segment : '') };
     if (accountId) q.accountId = accountId;
     if (needsReview === 'true') q.needsReview = true;
-    if (search && String(search).trim()) {
-      const rx = new RegExp(escapeRegex(String(search).trim()), 'i');
+    if (typeof search === 'string' && search.trim()) {
+      const rx = new RegExp(escapeRegex(search.trim().slice(0, 100)), 'i');
       q.$and = [{ $or: [{ subject: rx }, { clientName: rx }, { snippet: rx }, { aiSummary: rx }, { 'messages.senderName': rx }, { 'messages.senderEmail': rx }, { 'messages.body': rx }] }];
     }
     const [items, stats, upcoming] = await Promise.all([
@@ -146,7 +152,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-    if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply' && conv.status === 'open') {
+    if (req.user.role === 'client' && (conv.responsibility !== 'client_to_reply' || conv.status === 'archived')) {
       return res.status(403).json({ error: 'Not available in the client view' });
     }
     res.json({ conversation: view(conv) });
@@ -184,7 +190,8 @@ router.patch(
     if (typeof b.stagedForClient === 'boolean') conv.stagedForClient = b.stagedForClient;
     if (typeof b.paContextNote === 'string') conv.paContextNote = b.paContextNote.slice(0, 400);
     if (typeof b.draftBody === 'string') {
-      conv.draftReply = { body: b.draftBody, tone: b.tone || conv.draftReply?.tone || 'professional', approved: false, updatedAt: new Date() };
+      const tone = VALID_TONES.includes(b.tone) ? b.tone : conv.draftReply?.tone || 'professional';
+      conv.draftReply = { body: b.draftBody.slice(0, 15000), tone, approved: false, updatedAt: new Date() };
     }
     await conv.save();
     res.json({ conversation: view(conv) });
@@ -197,7 +204,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-    const body = String(req.body?.body || '').trim();
+    const rawBody = req.body?.body;
+    const body = typeof rawBody === 'string' ? rawBody.trim().slice(0, 15000) : '';
     if (!body) return res.status(400).json({ error: 'Reply body is required' });
     const account = await EmailAccount.findById(conv.accountId);
     conv.messages.push({ senderName: `${req.user.name} (for ${conv.clientName.split(' ')[0]})`, senderEmail: account?.clientEmail || 'assistant', direction: 'outbound', body, sentAt: new Date() });
@@ -214,9 +222,13 @@ router.post(
 router.post(
   '/simulate',
   requireAssistant,
+  aiActionLimiter,
   asyncHandler(async (req, res) => {
     const { conversationId, accountId, fromName, fromEmail, subject, body } = req.body || {};
-    if (!body || String(body).trim().length < 5) return res.status(400).json({ error: 'Write the email body to simulate' });
+    if (typeof body !== 'string' || body.trim().length < 5) return res.status(400).json({ error: 'Write the email body to simulate' });
+    const cleanBody = body.trim().slice(0, 15000);
+    const cleanFromName = typeof fromName === 'string' ? fromName.trim().slice(0, 120) : '';
+    const cleanFromEmail = typeof fromEmail === 'string' ? fromEmail.trim().slice(0, 200) : '';
 
     let conv;
     let created = false;
@@ -224,20 +236,23 @@ router.post(
       conv = await findOwned(req.ownerId, conversationId);
       if (!conv) return res.status(404).json({ error: 'Conversation not found' });
       const last = [...conv.messages].reverse().find((m) => m.direction === 'inbound');
-      conv.messages.push({ senderName: fromName || last?.senderName || 'Sender', senderEmail: fromEmail || last?.senderEmail || 'sender@example.com', direction: 'inbound', body, sentAt: new Date() });
+      conv.messages.push({ senderName: cleanFromName || last?.senderName || 'Sender', senderEmail: cleanFromEmail || last?.senderEmail || 'sender@example.com', direction: 'inbound', body: cleanBody, sentAt: new Date() });
       if (conv.status === 'completed' || conv.status === 'waiting_response') conv.status = 'open';
     } else {
+      if (accountId !== undefined && accountId !== '' && !isObjectId(accountId)) {
+        return res.status(400).json({ error: 'Invalid accountId' });
+      }
       const account = accountId ? await EmailAccount.findOne({ _id: accountId, ownerId: req.ownerId }) : await EmailAccount.findOne({ ownerId: req.ownerId }).sort({ createdAt: 1 });
       if (!account) return res.status(400).json({ error: 'Connect an email account first' });
-      if (!subject) return res.status(400).json({ error: 'Subject is required for a new email' });
+      if (typeof subject !== 'string' || !subject.trim()) return res.status(400).json({ error: 'Subject is required for a new email' });
       created = true;
       conv = new Conversation({
         ownerId: req.ownerId,
         accountId: account._id,
         clientName: account.clientName,
         provider: account.provider,
-        subject,
-        messages: [{ senderName: fromName || 'New Sender', senderEmail: fromEmail || 'sender@example.com', direction: 'inbound', body, sentAt: new Date() }],
+        subject: subject.trim().slice(0, 250),
+        messages: [{ senderName: cleanFromName || 'New Sender', senderEmail: cleanFromEmail || 'sender@example.com', direction: 'inbound', body: cleanBody, sentAt: new Date() }],
         responsibility: 'assistant_to_reply',
       });
     }
@@ -282,13 +297,20 @@ router.post(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply') {
+      return res.status(403).json({ error: 'Not available in the client view' });
+    }
+    if (conv.status !== 'open') {
+      return res.status(409).json({ error: 'This conversation is no longer open' });
+    }
     const { action, note, chipIndex, text } = req.body || {};
     const clientFirst = conv.clientName.split(' ')[0];
     let message = '';
 
     switch (action) {
       case 'approve_and_send': {
-        const body = String(text || conv.draftReply?.body || '').trim();
+        const override = typeof text === 'string' ? text.trim() : '';
+        const body = (override || conv.draftReply?.body || '').trim().slice(0, 15000);
         if (!body) return res.status(400).json({ error: 'There is no draft to send yet' });
         await sendAsClient(conv, req, body);
         await notify(req.ownerId, { conversationId: conv._id, type: 'client_sent', title: `${clientFirst} approved & sent a reply`, body: conv.subject });
@@ -305,7 +327,7 @@ router.post(
         break;
       }
       case 'quick_intent': {
-        const intent = String(text || '').trim();
+        const intent = typeof text === 'string' ? text.trim().slice(0, 500) : '';
         if (intent.length < 3) return res.status(400).json({ error: 'Tell me in a few words what you want to say' });
         const body = await expandQuickIntentToReply(conv, intent);
         conv.draftReply = { body, tone: 'executive', approved: false, updatedAt: new Date() };
@@ -324,8 +346,9 @@ router.post(
         await notify(req.ownerId, { conversationId: conv._id, type: 'client_handled', title: `${clientFirst} marked an item as handled`, body: conv.subject });
         message = 'Marked as handled';
         break;
-      case 'delegate_to_assistant':
-        conv.responsibilityHistory.push({ from: conv.responsibility, to: 'assistant_to_reply', reason: note ? `Client delegated: ${note}` : 'Client asked the assistant to take over', source: 'client' });
+      case 'delegate_to_assistant': {
+        const cleanNote = typeof note === 'string' ? note.trim().slice(0, 400) : '';
+        conv.responsibilityHistory.push({ from: conv.responsibility, to: 'assistant_to_reply', reason: cleanNote ? `Client delegated: ${cleanNote}` : 'Client asked the assistant to take over', source: 'client' });
         conv.responsibility = 'assistant_to_reply';
         conv.manualOverride = true;
         conv.needsReview = false;
@@ -333,11 +356,12 @@ router.post(
         conv.clientActionWhy = '';
         conv.quickActionChips = [];
         conv.snoozedUntil = null;
-        conv.delegatedByClientNote = String(note || '').slice(0, 400);
+        conv.delegatedByClientNote = cleanNote;
         conv.classificationReason = 'The client asked the assistant to take over.';
-        await notify(req.ownerId, { conversationId: conv._id, type: 'client_delegated', title: `${clientFirst} handed an email back to you`, body: note ? `“${note}” — ${conv.subject}` : conv.subject });
+        await notify(req.ownerId, { conversationId: conv._id, type: 'client_delegated', title: `${clientFirst} handed an email back to you`, body: cleanNote ? `“${cleanNote}” — ${conv.subject}` : conv.subject });
         message = 'Handed to your assistant';
         break;
+      }
       default:
         return res.status(400).json({ error: 'Unknown action' });
     }
@@ -351,6 +375,9 @@ router.post(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply') {
+      return res.status(403).json({ error: 'Not available in the client view' });
+    }
     if (!conv.undoableSendUntil || conv.undoableSendUntil < new Date()) return res.status(409).json({ error: 'The undo window has passed' });
     const last = conv.messages[conv.messages.length - 1];
     if (last?.direction !== 'outbound') return res.status(409).json({ error: 'Nothing to undo' });
@@ -370,6 +397,7 @@ router.post(
 router.post(
   '/:id/reanalyze',
   requireAssistant,
+  aiActionLimiter,
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
@@ -382,10 +410,14 @@ router.post(
 router.post(
   '/:id/draft',
   requireAssistant,
+  aiActionLimiter,
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-    const { tone = 'professional', instruction = '', asClient = false } = req.body || {};
+    const raw = req.body || {};
+    const tone = VALID_TONES.includes(raw.tone) ? raw.tone : 'professional';
+    const instruction = typeof raw.instruction === 'string' ? raw.instruction.trim().slice(0, 1000) : '';
+    const asClient = Boolean(raw.asClient);
     const body = await draftReply(conv, { tone, instruction, asClient });
     conv.draftReply = { body, tone, approved: false, updatedAt: new Date() };
     await conv.save();

@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -9,13 +8,22 @@ import conversationRoutes from './routes/conversationRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import { activeProvider } from './services/aiService.js';
+import { strictCors, securityHeaders, createRateLimiter } from './middleware/security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createApp() {
   const app = express();
-  app.use(cors());
-  app.use(express.json({ limit: '1mb' }));
+  app.disable('x-powered-by');
+  app.set('trust proxy', 1);
+  app.set('query parser', 'simple');
+
+  app.use(securityHeaders);
+  app.use(strictCors);
+  app.use(express.json({ limit: '256kb' }));
+
+  const apiLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 300 });
+  app.use('/api', apiLimiter);
 
   app.get('/api/health', (req, res) => res.json({ ok: true, ai: activeProvider(), time: new Date().toISOString() }));
   app.use('/api/auth', authRoutes);
@@ -37,7 +45,9 @@ export function createApp() {
   app.use((err, req, res, next) => {
     console.error('[error]', err);
     if (err.name === 'CastError') return res.status(400).json({ error: 'Invalid id' });
-    res.status(err.status || 500).json({ error: err.message || 'Something went wrong' });
+    const status = err.status || 500;
+    const msg = status >= 500 && process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message || 'Something went wrong';
+    res.status(status).json({ error: msg });
   });
 
   return app;

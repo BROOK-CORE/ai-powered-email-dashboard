@@ -242,3 +242,57 @@ describe('assistant reply flow & AI Q&A', () => {
     expect(reloaded.items).toHaveLength(1);
   });
 });
+
+describe('security hardening', () => {
+  it('sets defensive HTTP security headers and blocks wildcard/untrusted CORS origins', async () => {
+    const res = await api
+      .get('/api/health')
+      .set('X-Forwarded-Proto', 'https')
+      .set('Origin', 'https://untrusted-site.example');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(res.headers['content-security-policy']).toContain("script-src 'self'");
+    expect(res.headers['strict-transport-security']).toContain('max-age=31536000');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    expect(res.headers['permissions-policy']).toContain('camera=()');
+    expect(res.headers['x-powered-by']).toBeUndefined();
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('prevents clients from reading or acting on assistant-only threads', async () => {
+    const created = await api.post('/api/conversations/simulate').set(auth(assistant)).send({
+      fromName: 'Hotel Concierge',
+      fromEmail: 'desk@hotel.example',
+      subject: 'Meeting room booking confirmation',
+      body: 'Please confirm which meeting room schedule you prefer for Tuesday at 3 PM.',
+    });
+    const id = created.body.conversation.id;
+    expect(created.body.conversation.responsibility).toBe('assistant_to_reply');
+
+    const getRes = await api.get(`/api/conversations/${id}`).set(auth(client));
+    expect(getRes.status).toBe(403);
+
+    const actRes = await api
+      .post(`/api/conversations/${id}/client-action`)
+      .set(auth(client))
+      .send({ action: 'approve_and_send', text: 'Unauthorized send' });
+    expect(actRes.status).toBe(403);
+  });
+
+  it('rejects non-ObjectId accountId filters and invalid auth payload types', async () => {
+    const badFilter = await api.get('/api/conversations?accountId=invalid-id').set(auth(assistant));
+    expect(badFilter.status).toBe(400);
+
+    const badRegType = await api
+      .post('/api/auth/register')
+      .send({ name: 'Eve', email: 'eve@test.dev', password: { $ne: '' } });
+    expect(badRegType.status).toBe(400);
+
+    const shortPw = await api
+      .post('/api/auth/register')
+      .send({ name: 'Eve', email: 'eve@test.dev', password: 'short' });
+    expect(shortPw.status).toBe(400);
+  });
+});
