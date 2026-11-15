@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Archive, Bell, CalendarClock, CheckCircle2, ChevronDown, Clock, Eye, HelpCircle, Inbox, LayoutGrid, LogOut, Mail, Menu, Plus, Search,
-  Settings2, Sparkles, Star, UserCog, X, Zap, MailOpen, CalendarDays, Layers, Users,
+  Settings2, Sparkles, Star, Trash2, UserCog, X, Zap, MailOpen, CalendarDays, Layers, Users,
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -113,15 +113,23 @@ function Sidebar({ segment, setSegment, stats, accounts, accountId, setAccountId
   );
 }
 
-function Overview({ stats, upcoming, onOpen, onSegment }) {
+function Overview({ stats, upcoming, onOpen, onSegment, onSimulate }) {
+  const empty = stats?.total === 0;
   return (
     <div className="mx-auto max-w-xl animate-fade-up px-5 py-10">
       <div className="mb-8 text-center">
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500">
           <Mail className="h-7 w-7" />
         </div>
-        <h2 className="font-display text-xl font-extrabold text-slate-900">Select a conversation</h2>
-        <p className="mt-1 text-sm text-slate-500">Pick a thread to see AI insights, ownership and a draft reply.</p>
+        <h2 className="font-display text-xl font-extrabold text-slate-900">{empty ? 'Inbox is ready' : 'Select a conversation'}</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          {empty ? 'No messages yet — send your first incoming email to test live AI triage.' : 'Pick a thread to see AI insights, ownership and a draft reply.'}
+        </p>
+        {empty && onSimulate && (
+          <Button variant="primary" size="md" className="mt-4" icon={Zap} onClick={onSimulate}>
+            Send first message
+          </Button>
+        )}
       </div>
 
       {stats?.needsReview > 0 && (
@@ -244,6 +252,22 @@ export default function Assistant() {
 
   const pickSegment = (s) => { setSegment(s); setSelectedId(null); };
 
+  const clearInbox = async () => {
+    setMenuOpen(false);
+    try {
+      await api.del('/conversations');
+      setSelectedId(null);
+      setSegment('all');
+      setAccountId('');
+      setSearch('');
+      setBellKey((k) => k + 1);
+      await load();
+      toast.push('All messages removed — send your first message');
+    } catch (e) {
+      toast.push(e.message, { type: 'error' });
+    }
+  };
+
   return (
     <div className="flex h-dvh flex-col bg-canvas">
       {/* Top bar */}
@@ -288,6 +312,7 @@ export default function Assistant() {
                   <button onClick={() => nav('/client')} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-medium text-slate-700 hover:bg-amber-50 hover:text-amber-800"><Eye className="h-4 w-4" /> Switch to Client view</button>
                   <button onClick={() => setSimulate(true)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-medium text-slate-700 hover:bg-slate-100 md:hidden"><Zap className="h-4 w-4" /> Simulate incoming email</button>
                   <button onClick={() => nav('/accounts')} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-medium text-slate-700 hover:bg-slate-100"><Settings2 className="h-4 w-4" /> Manage mailboxes</button>
+                  <button onClick={clearInbox} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-medium text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /> Clear all messages</button>
                   <button onClick={logout} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-medium text-rose-600 hover:bg-rose-50"><LogOut className="h-4 w-4" /> Sign out</button>
                 </div>
               </div>
@@ -358,6 +383,7 @@ export default function Assistant() {
                   hasFilters={hasFilters}
                   onClear={() => { setSegment('all'); setAccountId(''); setSearch(''); }}
                   onConnect={() => setConnect(true)}
+                  onSimulate={() => setSimulate(true)}
                 />
               </div>
             </section>
@@ -374,7 +400,7 @@ export default function Assistant() {
                 />
               ) : (
                 <div className="h-full overflow-y-auto bg-slate-50/60">
-                  <Overview stats={data.stats} upcoming={data.upcoming} onOpen={openThread} onSegment={pickSegment} />
+                  <Overview stats={data.stats} upcoming={data.upcoming} onOpen={openThread} onSegment={pickSegment} onSimulate={() => setSimulate(true)} />
                 </div>
               )}
             </section>

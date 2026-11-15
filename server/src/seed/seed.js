@@ -25,8 +25,8 @@ export async function seedAccountInbox(ownerId, account, assistantName = 'Maya L
   return docs.length;
 }
 
-/** Idempotently create the demo assistant + client + two connected accounts with seeded inboxes. */
-export async function ensureDemoData() {
+/** Idempotently create the demo assistant + client + two connected accounts (empty inbox unless seedMessages=true). */
+export async function ensureDemoData({ seedMessages = process.env.SEED_DEMO_MESSAGES === 'true' } = {}) {
   let assistant = await User.findOne({ email: 'maya@assistant.demo' });
   if (assistant) return assistant;
 
@@ -52,14 +52,16 @@ export async function ensureDemoData() {
 
   const gmail = await EmailAccount.create({
     ownerId: assistant._id, clientName: 'Arjun Mehta', clientEmail: 'arjun.mehta@gmail.com',
-    provider: 'gmail', color: providerColor('gmail'),
+    provider: 'gmail', color: providerColor('gmail'), syncedCount: 0,
   });
   const outlook = await EmailAccount.create({
     ownerId: assistant._id, clientName: 'Arjun Mehta', clientEmail: 'arjun@lumenlabs.io',
-    provider: 'outlook', color: providerColor('outlook'),
+    provider: 'outlook', color: providerColor('outlook'), syncedCount: 0,
   });
-  await seedAccountInbox(assistant._id, gmail, assistant.name);
-  await seedAccountInbox(assistant._id, outlook, assistant.name);
-  console.log('[seed] demo assistant, client and inboxes created');
+  if (seedMessages) {
+    await seedAccountInbox(assistant._id, gmail, assistant.name);
+    await seedAccountInbox(assistant._id, outlook, assistant.name);
+  }
+  console.log(`[seed] demo assistant, client and mailboxes ready (seeded messages: ${seedMessages})`);
   return assistant;
 }

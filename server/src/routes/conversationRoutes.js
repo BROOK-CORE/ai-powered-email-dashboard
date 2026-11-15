@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Conversation } from '../models/Conversation.js';
 import { EmailAccount } from '../models/EmailAccount.js';
+import { Notification } from '../models/Notification.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
 import { analyzeConversation, refreshSnippet, notify, findOwned, segmentQuery } from '../services/conversationService.js';
 import { draftReply, expandQuickIntentToReply, audioBrief } from '../services/aiService.js';
@@ -120,6 +121,23 @@ router.get(
       upcomingEvents(req.ownerId),
     ]);
     res.json({ items: items.map(listView), stats, upcoming });
+  })
+);
+
+router.delete(
+  '/',
+  requireAssistant,
+  asyncHandler(async (req, res) => {
+    const [convRes, notifRes] = await Promise.all([
+      Conversation.deleteMany({ ownerId: req.ownerId }),
+      Notification.deleteMany({ ownerId: req.ownerId }),
+      EmailAccount.updateMany({ ownerId: req.ownerId }, { $set: { syncedCount: 0 } }),
+    ]);
+    res.json({
+      ok: true,
+      deletedConversations: convRes.deletedCount || 0,
+      deletedNotifications: notifRes.deletedCount || 0,
+    });
   })
 );
 

@@ -52,14 +52,31 @@ function Row({ c, selected, onSelect }) {
   );
 }
 
-export default function ThreadList({ items, loading, error, onRetry, selectedId, onSelect, hasFilters, onClear, onConnect }) {
+export default function ThreadList({ items, loading, error, onRetry, selectedId, onSelect, hasFilters, onClear, onConnect, onSimulate }) {
   if (loading && !items.length) return <ListSkeleton />;
   if (error && !items.length) return <ErrorState message={error} onRetry={onRetry} />;
   if (!items.length)
     return hasFilters ? (
       <EmptyState title="No conversations match" text="Try a different segment or clear your search." action={<button onClick={onClear} className="text-sm font-semibold text-indigo-600 hover:underline">Clear filters</button>} />
     ) : (
-      <EmptyState title="Nothing here yet" text="Connect a mailbox or simulate an incoming email to see AI triage in action." action={onConnect && <button onClick={onConnect} className="text-sm font-semibold text-indigo-600 hover:underline">Connect an inbox</button>} />
+      <EmptyState
+        title="No messages yet"
+        text="Your inbox is clear. Simulate an incoming email to send the first message, or connect a new mailbox."
+        action={
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {onSimulate && (
+              <button onClick={onSimulate} className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-700">
+                Simulate first message
+              </button>
+            )}
+            {onConnect && (
+              <button onClick={onConnect} className="text-sm font-semibold text-indigo-600 hover:underline">
+                Connect an inbox
+              </button>
+            )}
+          </div>
+        }
+      />
     );
   return (
     <ul className="divide-y divide-slate-100">

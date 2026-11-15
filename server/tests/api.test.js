@@ -14,7 +14,7 @@ const auth = (t) => ({ Authorization: `Bearer ${t}` });
 beforeAll(async () => {
   delete process.env.MONGODB_URI;
   ctx = await connectDb();
-  await ensureDemoData();
+  await ensureDemoData({ seedMessages: true });
   api = request(createApp());
   assistant = (await api.post('/api/auth/demo').send({ role: 'assistant' })).body.token;
   client = (await api.post('/api/auth/demo').send({ role: 'client' })).body.token;
@@ -216,5 +216,29 @@ describe('assistant reply flow & AI Q&A', () => {
     expect(q1.body.conversations.every((c) => c.responsibility === 'client_to_reply')).toBe(true);
     const q2 = await api.post('/api/ai/query').set(auth(assistant)).send({ question: 'What am I waiting for a response on?' });
     expect(q2.body.conversations.every((c) => c.status === 'waiting_response')).toBe(true);
+  });
+
+  it('clears all messages while preserving mailboxes so user can send the first message', async () => {
+    const cleared = await api.del('/api/conversations').set(auth(assistant));
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.deletedConversations).toBeGreaterThan(0);
+
+    const after = await list();
+    expect(after.items).toHaveLength(0);
+    expect(after.stats.total).toBe(0);
+
+    const accounts = await api.get('/api/accounts').set(auth(assistant));
+    expect(accounts.body.accounts.length).toBeGreaterThanOrEqual(2);
+    expect(accounts.body.accounts.every((a) => a.syncedCount === 0)).toBe(true);
+
+    const firstMsg = await api.post('/api/conversations/simulate').set(auth(assistant)).send({
+      fromName: 'First Sender',
+      fromEmail: 'first@example.com',
+      subject: 'Hello Inboxly',
+      body: 'Could you please confirm a meeting on Thursday at 2 PM?',
+    });
+    expect(firstMsg.status).toBe(201);
+    const reloaded = await list();
+    expect(reloaded.items).toHaveLength(1);
   });
 });
