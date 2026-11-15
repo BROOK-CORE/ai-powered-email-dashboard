@@ -95,6 +95,9 @@ h3,
 .animate-drain {
   animation: drain 5s linear forwards;
 }
+.animate-pulse-ring {
+  animation: pulse-ring 1.2s infinite;
+}
 .skeleton {
   position: relative;
   overflow: hidden;

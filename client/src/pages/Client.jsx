@@ -139,7 +139,7 @@ function DecisionCard({ c, busy, onAction, onOpen }) {
                   className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-4 pr-11 text-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
                 />
                 {SR && (
-                  <button type="button" onClick={mic} aria-label={listening ? 'Stop dictation' : 'Dictate'} className={cx('absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition', listening ? 'bg-rose-500 text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700')} style={listening ? { animation: 'pulse-ring 1.2s infinite' } : undefined}>
+                  <button type="button" onClick={mic} aria-label={listening ? 'Stop dictation' : 'Dictate'} className={cx('absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg transition', listening ? 'animate-pulse-ring bg-rose-500 text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700')}>
                     <Mic className="h-4 w-4" />
                   </button>
                 )}

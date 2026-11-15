@@ -36,7 +36,7 @@
 - **Changes Made:** Created `securityHeaders` middleware in [server/src/middleware/security.js](server/src/middleware/security.js) and registered it in [server/src/app.js](server/src/app.js). Sets:
   - `default-src 'self'`
   - `script-src 'self'` *(no `'unsafe-inline'`; verified `client/dist/index.html` uses only external bundled module scripts)*
-  - `style-src 'self' https://fonts.googleapis.com` in production *(no `'unsafe-inline'`; all dynamic React styles refactored to Tailwind utility classes and CSS animations in `ui.jsx`, `ConnectWizard.jsx`, `ThreadDetail.jsx`, `Assistant.jsx`, and `index.css`; `'unsafe-inline'` retained only in local dev for Vite HMR)*
+  - `style-src 'self' https://fonts.googleapis.com` in production *(no `'unsafe-inline'`; all dynamic React styles refactored to Tailwind utility classes and CSS animations in `ui.jsx`, `ConnectWizard.jsx`, `ThreadDetail.jsx`, `Assistant.jsx`, `Client.jsx`, and `index.css`; `'unsafe-inline'` retained only in local dev for Vite HMR)*
   - `font-src 'self' https://fonts.gstatic.com data:`
   - `img-src 'self' data: blob:`
   - `connect-src 'self'` *(plus explicit `ALLOWED_ORIGINS` / `PUBLIC_API_ORIGIN` when split-origin hosting is configured)*
