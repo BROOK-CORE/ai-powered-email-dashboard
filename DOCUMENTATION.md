@@ -58,6 +58,7 @@ F:\Ai powered email dashboard\
 |-- .gitignore                  # Ignores node_modules, .cache, dist, .env, *.log
 |-- .npmrc                      # npm workspace settings
 |-- DOCUMENTATION.md            # This technical & usage guide
+|-- SECURITY_AUDIT.md           # Security audit findings, risk scenarios & fixes
 |-- README.md                   # Quick-start & deployment summary
 |-- render.yaml                 # Render Free Web Service Blueprint spec
 |-- package.json                # Root npm workspaces & scripts (dev, build, start, test)
@@ -96,7 +97,9 @@ F:\Ai powered email dashboard\
         |-- index.js                # Entry point: loads .env, connects DB, seeds users/accounts, listens
         |-- app.js                  # Express middleware, /api routes, /api/health, client/dist SPA fallback
         |-- config/db.js            # Connects MONGODB_URI or starts local cached MongoMemoryServer
-        |-- middleware/auth.js      # JWT signing, requireAuth, requireAssistant, asyncHandler
+        |-- middleware/
+        |   |-- auth.js             # JWT signing (HS256 + prod guard), requireAuth, requireAssistant, asyncHandler
+        |   `-- security.js         # strictCors, securityHeaders (CSP/HSTS/XFO), createRateLimiter, isObjectId
         |-- models/
         |   |-- User.js             # Assistant & linked client profiles
         |   |-- EmailAccount.js     # Connected Gmail/Outlook/custom API mailboxes
@@ -206,7 +209,7 @@ All `/api/*` endpoints except `/api/health`, `/api/auth/register`, `/api/auth/lo
 | `GET /api/conversations` | Assistant | Filters by `segment`, `accountId`, `search`, `needsReview`; returns `{ items, stats, upcoming }` |
 | `DELETE /api/conversations` | Assistant | Clears all conversations & notifications for workspace; resets `syncedCount: 0` |
 | `GET /api/conversations/client-queue` | Auth | Returns `{ clientName, items, snoozedCount, handledCount, audioBriefText }` |
-| `GET /api/conversations/:id` | Auth | Full thread detail with embedded messages (`403` if client accesses non-client open thread) |
+| `GET /api/conversations/:id` | Auth | Full thread detail with embedded messages (`403` if client accesses non-client or archived thread) |
 | `PATCH /api/conversations/:id` | Assistant | Override `responsibility`, `status`, `isImportant`, `isUnread`, `stagedForClient`, `paContextNote`, `draftBody` |
 | `POST /api/conversations/:id/reply` | Assistant | Sends explicit assistant reply, transitions thread to `waiting_response` |
 | `POST /api/conversations/simulate` | Assistant | Injects a new thread or follow-up message, runs AI classification + notifications |
@@ -255,6 +258,8 @@ npm run dev
 | `JWT_SECRET` | Recommended in prod | Secret key for signing 7-day JWT sessions |
 | `MONGODB_URI` | Prod / Atlas | MongoDB Atlas URI; if omitted locally, `db.js` runs cached `MongoMemoryServer` |
 | `SEED_DEMO_MESSAGES` | Optional (`'true'`) | Pre-seeds 13 sample threads on a fresh demo DB when set to `'true'` |
+| `ALLOWED_ORIGINS` | Optional | Comma-separated allowlist of extra CORS origins permitted for cross-origin API calls |
+| `DISABLE_DEMO_LOGIN` | Optional (`'true'`) | Disables public one-click `POST /api/auth/demo` login in hardened deployments |
 | `GROQ_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` | Optional | Enables live LLM inference (falls back to built-in `heuristic` engine when empty) |
 
 See [render.yaml](file:///F:/Ai%20powered%20email%20dashboard/render.yaml) for the Render Free Web Service Blueprint (`npm install --include=dev && npm run build` and `npm start`).

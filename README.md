@@ -3,6 +3,7 @@
 Personal Assistant & Executive Client email triage workspace built with MongoDB, Express, React, and Node.js.
 
 - **Full Technical & Usage Documentation:** See [DOCUMENTATION.md](./DOCUMENTATION.md) for architecture diagrams, complete code/file breakdown, AI classification rules, Mongoose schemas, REST API reference, and step-by-step usage instructions.
+- **Security Audit & Fixes Report:** See [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) for all audited security findings, concrete attack risks, code changes applied, and verification status.
 
 ## Local Setup (Self-Contained on `F:`)
 

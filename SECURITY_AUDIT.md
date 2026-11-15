@@ -171,16 +171,17 @@
 
 ---
 
-## Verification Summary (Post-Fix)
+## Verification Summary (Post-Fix & Live Deploy)
 
-- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`20 passed (20)`** tests (including 3 new security tests covering HTTP headers + HTTPS HSTS + strict CORS rejection, client-role IDOR blocks, and NoSQL/input-type rejection).
+- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`20 passed (20)`** tests (including security regression tests covering HTTP headers + HTTPS HSTS + strict CORS rejection, client-role IDOR blocks, and NoSQL/input-type rejection).
 - **Production Client Build (`npm --workspace=client run build`):** Succeeded (`1590 modules transformed`, emitted `dist/index.html` with external bundled assets only — compatible with `script-src 'self'`).
+- **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`):** Verified live HTTP response headers on `/` and `/api/health` confirm `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cache-Control: no-store` on `/api/*`, `ratelimit-limit: 300`, absence of `X-Powered-By`, rejection of untrusted cross-origin `Origin` headers, and `401 Unauthorized` on unauthenticated `/api/conversations`.
 
 ---
 
 ## Areas Not Verified Due to Lack of Access
 
-1. **Live Production Deployment Re-Scan on Render (`https://ai-powered-email-dashboard.onrender.com`):** These security fixes are implemented and verified locally (`F:\Ai powered email dashboard`), **not yet pushed** to `BROOK-CORE/ai-powered-email-dashboard` or re-scanned on SecureScanr (because automated `git push` requires interactive Windows Git authentication on your machine).
+1. **Third-Party SecureScanr Re-Scan Score:** Direct HTTP header checks against `https://ai-powered-email-dashboard.onrender.com/` and `/api/health` confirmed all remediated headers are live in production, though an interactive re-scan inside the external SecureScanr web UI was not re-triggered.
 2. **Render Dashboard Secret Environment Variables:** Could not directly read or audit the live `JWT_SECRET` strength or other encrypted environment variable values currently stored inside Render service `srv-dbst3poae00c7390mg2g`.
 3. **MongoDB Atlas Infrastructure & Audit Logs:** Could not inspect Atlas TLS cipher suites, database audit logs, VPC peering/private endpoints, or verify whether `0.0.0.0/0` Network Access should be narrowed to Render's outbound static IP list (paid feature) instead of open `0.0.0.0/0`.
 4. **Cloudflare / Render Upstream Proxy Header Manipulation:** SecureScanr reported `Server: cloudflare`; upstream CDN/proxy header overrides, DDoS/WAF rules, and edge TLS certificates on `.onrender.com` are controlled by Render/Cloudflare and cannot be modified from Express.
