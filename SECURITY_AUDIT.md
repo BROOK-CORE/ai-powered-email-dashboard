@@ -2,7 +2,7 @@
 
 **Target Application:** Inboxly — AI-Powered Email Management Dashboard (MERN stack: Express 4 API + React 18 SPA + MongoDB/Mongoose)  
 **Audit Scope:** Full source code & configuration audit (`server/`, `client/`, `render.yaml`, `.env.example`, `.gitignore`, git history) plus live HTTP security header findings from the **SecureScanr** scan of `https://ai-powered-email-dashboard.onrender.com` (initial grade **F 0/100**).  
-**Status:** Vulnerabilities identified, explained, fixed across the backend/frontend codebase, and verified with automated regression tests (`20/20` passing in Vitest + production Vite build).
+**Status:** Vulnerabilities identified, explained, fixed across the backend/frontend codebase, and verified with automated regression tests (`24/24` passing in Vitest + production Vite build).
 
 ---
 
@@ -22,6 +22,8 @@
 | SEC-10 | Unauthenticated public `/api/auth/demo` sandbox access & weak password minimum (`6` chars) | Auth / Access Control | **Medium** | **Mitigated (`DISABLE_DEMO_LOGIN` + 8-char min)** |
 | SEC-11 | Framework disclosure (`X-Powered-By: Express`), unhandled `500` error details, large JSON payload limit | Configuration / Exposure | **Low** | **Fixed** |
 | SEC-12 | Missing `Permissions-Policy`, `Referrer-Policy`, `COOP`, `CORP`, and `/api` `Cache-Control: no-store` | Configuration | **Low** | **Fixed** |
+| SEC-13 | Missing server logout revocation (`jti`), per-account lockout, login timing parity & cross-tab sync | Auth / Session | **High / Medium** | **Fixed** |
+| SEC-14 | Raw error dumps (`[error] err`), missing structured security logging, unmasked LLM query-key risk & alert thresholds | Logging / Monitoring | **Medium** | **Fixed** |
 
 ---
 
@@ -174,6 +176,19 @@
 
 ---
 
+### SEC-14: Raw Server Error Logging, API-Key Error Scrubbing & Structured Security Logging Plan
+- **Severity:** Medium *(Observability, Privacy & Secret-Safety)*
+- **Original Evidence:** `server/src/app.js` line 46 (`console.error('[error]', err)` printed raw `err` objects to stdout), `server/src/services/aiService.js` lines 45 & 85 (`err.message` logged directly even when Gemini client URL included `?key=...`), and zero audit logs on authentication failures, authorization denials (`401`/`403`), rate limits (`429`), validation failures (`400`), or destructive admin actions (`DELETE /api/conversations`, `DELETE /api/accounts/:id`, manual `PATCH` responsibility override).
+- **Changes Made:**
+  - Created [server/src/services/securityLogger.js](server/src/services/securityLogger.js) implementing:
+    - Request correlation ID middleware (`attachRequestId` -> `X-Request-Id`).
+    - Automatic redaction (`SENSITIVE_KEY_RX` strips passwords, tokens, secrets, auth headers, emails, subjects, bodies, prompts, URIs, and drafts; `scrubText()` masks `Bearer ...`, `?key=...`, and `mongodb://` credentials; `hashForLog()` pseudonymizes IPs/emails via HMAC-SHA256).
+    - Sliding-window alert rules (`ALERT_RULES`) emitting `alert: true`, `alertReason`, and `alertOwner`, plus optional `SECURITY_ALERT_WEBHOOK_URL` forwarding (`https://` only).
+  - Replaced raw `console.error('[error]', err)` in [app.js](server/src/app.js) and raw `console.warn` in [aiService.js](server/src/services/aiService.js) with scrubbed `logSecurityEvent()` telemetry.
+  - Instrumented [auth.js](server/src/middleware/auth.js), [security.js](server/src/middleware/security.js), [authRoutes.js](server/src/routes/authRoutes.js), [accountRoutes.js](server/src/routes/accountRoutes.js), [conversationRoutes.js](server/src/routes/conversationRoutes.js), and [aiRoutes.js](server/src/routes/aiRoutes.js).
+
+---
+
 ## Checks That Passed (No Vulnerability Found)
 
 - **Git History & Client Secret Exposure (`git log -p --all` & `client/` scan):** Confirmed zero API keys (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`), zero `MONGODB_URI` connection strings, and zero `.env` files exist in client source/build bundles or git commit history (`.env` is gitignored).
@@ -184,7 +199,7 @@
 
 ## Verification Summary (Post-Fix & Live Deploy)
 
-- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`23 passed (23)`** tests (including security regression tests covering HTTP headers, HTTPS-only HSTS + strict production `style-src` CSP, forwarded plain-HTTP `308` redirect, strict CORS rejection, client-role IDOR blocks, NoSQL/input-type rejection, logout JWT revocation, password change invalidation, and per-account login lockout).
+- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`24 passed (24)`** tests (including security regression tests covering HTTP headers, HTTPS-only HSTS + strict production `style-src` CSP, forwarded plain-HTTP `308` redirect, strict CORS rejection, client-role IDOR blocks, NoSQL/input-type rejection, logout JWT revocation, password change invalidation, per-account login lockout, and structured redacted security logging + alerts).
 - **Production Client Build (`npm --workspace=client run build`):** Succeeded (`1590 modules transformed`, emitted `dist/index.html` with external bundled assets only — compatible with `script-src 'self'`).
 - **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`):** Verified live HTTP response headers on `/` and `/api/health` confirm `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cache-Control: no-store` on `/api/*`, `ratelimit-limit: 300`, absence of `X-Powered-By`, rejection of untrusted cross-origin `Origin` headers, and `401 Unauthorized` on unauthenticated `/api/conversations`.
 

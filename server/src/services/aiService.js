@@ -6,6 +6,8 @@
  * prototype always works offline.
  */
 
+import { logSecurityEvent, scrubText } from './securityLogger.js';
+
 const CONFIDENCE_THRESHOLD = 0.75;
 
 /* ----------------------------------------------------------------------------------------- */
@@ -82,7 +84,8 @@ async function callLLM({ system, user, json = false }) {
       json,
     });
   } catch (err) {
-    console.warn(`[ai] ${provider} failed (${err.message}) -> heuristic fallback`);
+    const safeReason = scrubText(err?.message || 'unknown');
+    logSecurityEvent({ event: 'ai.provider_fallback', severity: 'warn', outcome: 'fallback', meta: { provider, reason: safeReason } });
     return null;
   }
 }

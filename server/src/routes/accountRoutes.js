@@ -4,6 +4,7 @@ import { Conversation } from '../models/Conversation.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
 import { isObjectId } from '../middleware/security.js';
 import { seedAccountInbox, providerColor } from '../seed/seed.js';
+import { logSecurityEvent } from '../services/securityLogger.js';
 
 const router = Router();
 router.use(requireAuth, requireAssistant);
@@ -55,6 +56,7 @@ router.post(
       color: providerColor(provider),
     });
     const imported = await seedAccountInbox(req.ownerId, account, req.user.name);
+    logSecurityEvent({ event: 'admin.account_connected', outcome: 'success', req, targetId: account._id, meta: { provider, count: imported, status: 201 } });
     res.status(201).json({ account: (await withCounts(req.ownerId, [account]))[0], imported });
   })
 );
@@ -62,7 +64,10 @@ router.post(
 router.post(
   '/:id/sync',
   asyncHandler(async (req, res) => {
-    if (!isObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid account id' });
+    if (!isObjectId(req.params.id)) {
+      logSecurityEvent({ event: 'validation.failed', severity: 'warn', outcome: 'rejected', req, meta: { field: 'accountId', rule: 'invalid_object_id', status: 400 } });
+      return res.status(400).json({ error: 'Invalid account id' });
+    }
     const account = await EmailAccount.findOne({ _id: req.params.id, ownerId: req.ownerId });
     if (!account) return res.status(404).json({ error: 'Account not found' });
     account.lastSyncedAt = new Date();
@@ -75,11 +80,16 @@ router.post(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    if (!isObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid account id' });
+    if (!isObjectId(req.params.id)) {
+      logSecurityEvent({ event: 'validation.failed', severity: 'warn', outcome: 'rejected', req, meta: { field: 'accountId', rule: 'invalid_object_id', status: 400 } });
+      return res.status(400).json({ error: 'Invalid account id' });
+    }
     const account = await EmailAccount.findOne({ _id: req.params.id, ownerId: req.ownerId });
     if (!account) return res.status(404).json({ error: 'Account not found' });
     await Conversation.deleteMany({ accountId: account._id });
+    const deletedProvider = account.provider;
     await account.deleteOne();
+    logSecurityEvent({ event: 'admin.account_deleted', severity: 'warn', outcome: 'success', req, targetId: req.params.id, meta: { provider: deletedProvider, status: 200 } });
     res.json({ ok: true });
   })
 );

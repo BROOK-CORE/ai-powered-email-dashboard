@@ -6,6 +6,7 @@ import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.
 import { createRateLimiter, isObjectId } from '../middleware/security.js';
 import { analyzeConversation, refreshSnippet, notify, findOwned, segmentQuery } from '../services/conversationService.js';
 import { draftReply, expandQuickIntentToReply, audioBrief } from '../services/aiService.js';
+import { logSecurityEvent } from '../services/securityLogger.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -13,7 +14,7 @@ router.use(requireAuth);
 const UNDO_WINDOW_MS = 5000;
 const ACTIVE = { $in: ['open', 'waiting_response'] };
 const VALID_TONES = ['professional', 'concise', 'warm', 'executive'];
-const aiActionLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 });
+const aiActionLimiter = createRateLimiter({ name: 'ai_action', windowMs: 15 * 60 * 1000, max: 60 });
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -112,6 +113,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { segment, accountId, search, needsReview } = req.query;
     if (accountId !== undefined && accountId !== '' && !isObjectId(accountId)) {
+      logSecurityEvent({ event: 'validation.failed', outcome: 'rejected', req, meta: { field: 'accountId', rule: 'invalid_object_id', status: 400 } });
       return res.status(400).json({ error: 'Invalid accountId' });
     }
     const q = { ownerId: req.ownerId, ...segmentQuery(typeof segment === 'string' ? segment : '') };
@@ -139,6 +141,13 @@ router.delete(
       Notification.deleteMany({ ownerId: req.ownerId }),
       EmailAccount.updateMany({ ownerId: req.ownerId }, { $set: { syncedCount: 0 } }),
     ]);
+    logSecurityEvent({
+      event: 'admin.workspace_cleared',
+      severity: 'warn',
+      outcome: 'success',
+      req,
+      meta: { deletedConversations: convRes.deletedCount || 0, deletedNotifications: notifRes.deletedCount || 0, status: 200 },
+    });
     res.json({
       ok: true,
       deletedConversations: convRes.deletedCount || 0,
@@ -153,6 +162,7 @@ router.get(
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
     if (req.user.role === 'client' && (conv.responsibility !== 'client_to_reply' || conv.status === 'archived')) {
+      logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'read_non_client_or_archived', status: 403 } });
       return res.status(403).json({ error: 'Not available in the client view' });
     }
     res.json({ conversation: view(conv) });
@@ -170,7 +180,11 @@ router.patch(
     const b = req.body || {};
 
     if (b.responsibility && b.responsibility !== conv.responsibility) {
-      if (!['assistant_to_reply', 'client_to_reply', 'no_reply_needed'].includes(b.responsibility)) return res.status(400).json({ error: 'Invalid responsibility' });
+      if (!['assistant_to_reply', 'client_to_reply', 'no_reply_needed'].includes(b.responsibility)) {
+        logSecurityEvent({ event: 'validation.failed', outcome: 'rejected', req, targetId: conv._id, meta: { field: 'responsibility', rule: 'invalid_enum', status: 400 } });
+        return res.status(400).json({ error: 'Invalid responsibility' });
+      }
+      const prevResponsibility = conv.responsibility;
       conv.responsibilityHistory.push({ from: conv.responsibility, to: b.responsibility, reason: 'Changed manually by the assistant', source: 'assistant' });
       conv.responsibility = b.responsibility;
       conv.manualOverride = true;
@@ -182,6 +196,7 @@ router.patch(
       } else if (!conv.clientActionWhy) {
         conv.clientActionWhy = 'Your assistant marked this as needing your personal reply.';
       }
+      logSecurityEvent({ event: 'privilege.responsibility_override', outcome: 'success', req, targetId: conv._id, meta: { from: prevResponsibility, to: b.responsibility, status: 200 } });
     }
     if (b.dismissReview) conv.needsReview = false;
     if (typeof b.isImportant === 'boolean') conv.isImportant = b.isImportant;
@@ -298,6 +313,7 @@ router.post(
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
     if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply') {
+      logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'action_non_client_thread', action: typeof req.body?.action === 'string' ? req.body.action : null, status: 403 } });
       return res.status(403).json({ error: 'Not available in the client view' });
     }
     if (conv.status !== 'open') {
@@ -376,6 +392,7 @@ router.post(
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
     if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply') {
+      logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'undo_non_client_thread', status: 403 } });
       return res.status(403).json({ error: 'Not available in the client view' });
     }
     if (!conv.undoableSendUntil || conv.undoableSendUntil < new Date()) return res.status(409).json({ error: 'The undo window has passed' });

@@ -1,4 +1,5 @@
 import cors from 'cors';
+import { logSecurityEvent } from '../services/securityLogger.js';
 
 const DEV_ORIGINS = new Set([
   'http://localhost:5000',
@@ -32,8 +33,10 @@ export function enforceHttps(req, res, next) {
 
   const host = req.get('host');
   if (!host || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) {
+    logSecurityEvent({ event: 'validation.failed', severity: 'warn', outcome: 'blocked', req, meta: { field: 'host', rule: 'invalid_host_header', status: 400 } });
     return res.status(400).json({ error: 'Invalid Host header' });
   }
+  logSecurityEvent({ event: 'transport.plain_http', severity: 'warn', outcome: req.method === 'GET' || req.method === 'HEAD' ? 'redirected' : 'blocked', req });
   if (req.method === 'GET' || req.method === 'HEAD') {
     return res.redirect(308, `https://${host}${req.originalUrl}`);
   }
@@ -98,7 +101,7 @@ export function securityHeaders(req, res, next) {
 }
 
 /** Lightweight sliding-window in-memory rate limiter keyed by client IP + bucket name. */
-export function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 100, message = 'Too many requests, please try again later.' } = {}) {
+export function createRateLimiter({ name = 'default', windowMs = 15 * 60 * 1000, max = 100, message = 'Too many requests, please try again later.' } = {}) {
   const buckets = new Map();
 
   return (req, res, next) => {
@@ -121,6 +124,7 @@ export function createRateLimiter({ windowMs = 15 * 60 * 1000, max = 100, messag
     res.setHeader('RateLimit-Remaining', String(Math.max(0, max - entry.count)));
 
     if (entry.count > max) {
+      logSecurityEvent({ event: 'ratelimit.exceeded', severity: 'warn', outcome: 'blocked', req, meta: { limiter: name, max, windowMs, count: entry.count, status: 429 } });
       return res.status(429).json({ error: message });
     }
     return next();

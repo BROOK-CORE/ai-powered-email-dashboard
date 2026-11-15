@@ -9,6 +9,7 @@ import aiRoutes from './routes/aiRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import { activeProvider } from './services/aiService.js';
 import { strictCors, securityHeaders, enforceHttps, createRateLimiter } from './middleware/security.js';
+import { attachRequestId, logSecurityEvent } from './services/securityLogger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,12 +19,13 @@ export function createApp() {
   app.set('trust proxy', 1);
   app.set('query parser', 'simple');
 
+  app.use(attachRequestId);
   app.use(securityHeaders);
   app.use(enforceHttps);
   app.use(strictCors);
   app.use(express.json({ limit: '256kb' }));
 
-  const apiLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 300 });
+  const apiLimiter = createRateLimiter({ name: 'api', windowMs: 15 * 60 * 1000, max: 300 });
   app.use('/api', apiLimiter);
 
   app.get('/api/health', (req, res) => res.json({ ok: true, ai: activeProvider(), time: new Date().toISOString() }));
@@ -44,9 +46,15 @@ export function createApp() {
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
-    console.error('[error]', err);
+    const status = err.name === 'CastError' ? 400 : err.status || 500;
+    logSecurityEvent({
+      event: status >= 500 ? 'server.error' : 'validation.failed',
+      severity: status >= 500 ? 'error' : 'warn',
+      outcome: 'failure',
+      req,
+      meta: { name: err.name || 'Error', code: err.code || null, status, rule: err.name === 'CastError' ? 'cast_error' : 'unhandled_error' },
+    });
     if (err.name === 'CastError') return res.status(400).json({ error: 'Invalid id' });
-    const status = err.status || 500;
     const msg = status >= 500 && process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message || 'Something went wrong';
     res.status(status).json({ error: msg });
   });

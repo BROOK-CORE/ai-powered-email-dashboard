@@ -114,7 +114,8 @@ F:\Ai powered email dashboard\
         |   `-- notificationRoutes.js # /api/notifications/*
         |-- services/
         |   |-- aiService.js        # LLM HTTP transport + heuristic classification/drafting/Q&A
-        |   `-- conversationService.js # Ownership reconciliation, snippets, notifications, segment queries
+        |   |-- conversationService.js # Ownership reconciliation, snippets, notifications, segment queries
+        |   `-- securityLogger.js   # Redacted JSON security logger, request IDs & threshold alerting
         `-- seed/
             |-- seed.js             # ensureDemoData() (empty inbox by default) & seedAccountInbox()
             `-- seedData.js         # Optional sample email dataset for Connect Wizard / test runs
@@ -258,11 +259,13 @@ npm run dev
 | Variable | Required? | Purpose |
 |---|---|---|
 | `PORT` | Optional (default `5000`) | HTTP listen port (`10000` injected automatically by Render) |
-| `JWT_SECRET` | Recommended in prod | Secret key for signing 7-day JWT sessions |
+| `JWT_SECRET` | Recommended in prod | Secret key for signing 1-day JWT sessions |
 | `MONGODB_URI` | Prod / Atlas | MongoDB Atlas URI; if omitted locally, `db.js` runs cached `MongoMemoryServer` |
 | `SEED_DEMO_MESSAGES` | Optional (`'true'`) | Pre-seeds 13 sample threads on a fresh demo DB when set to `'true'` |
 | `ALLOWED_ORIGINS` | Optional | Comma-separated allowlist of extra CORS origins permitted for cross-origin API calls |
 | `DISABLE_DEMO_LOGIN` | Optional (`'true'`) | Disables public one-click `POST /api/auth/demo` login in hardened deployments |
+| `LOG_SALT` | Optional | Salt used for pseudonymous HMAC correlation hashes (`ipHash`, `emailHash`) in security logs |
+| `SECURITY_ALERT_WEBHOOK_URL` | Optional (`https://`) | Webhook URL to receive JSON payloads whenever an alert threshold fires |
 | `GROQ_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` | Optional | Enables live LLM inference (falls back to built-in `heuristic` engine when empty) |
 
 See [render.yaml](file:///F:/Ai%20powered%20email%20dashboard/render.yaml) for the Render Free Web Service Blueprint (`npm install --include=dev && npm run build` and `npm start`).

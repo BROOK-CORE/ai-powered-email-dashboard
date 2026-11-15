@@ -3,15 +3,19 @@ import { Conversation } from '../models/Conversation.js';
 import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.js';
 import { createRateLimiter, isObjectId } from '../middleware/security.js';
 import { answerInboxQuery } from '../services/aiService.js';
+import { logSecurityEvent } from '../services/securityLogger.js';
 
 const router = Router();
-router.use(requireAuth, requireAssistant, createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60 }));
+router.use(requireAuth, requireAssistant, createRateLimiter({ name: 'ai_query', windowMs: 15 * 60 * 1000, max: 60 }));
 
 router.post(
   '/query',
   asyncHandler(async (req, res) => {
     const rawQ = req.body?.question;
-    if (typeof rawQ !== 'string' || rawQ.trim().length < 2) return res.status(400).json({ error: 'Ask a question about your inbox' });
+    if (typeof rawQ !== 'string' || rawQ.trim().length < 2) {
+      logSecurityEvent({ event: 'validation.failed', outcome: 'rejected', req, meta: { field: 'question', rule: 'min_length_or_type', status: 400 } });
+      return res.status(400).json({ error: 'Ask a question about your inbox' });
+    }
     const question = rawQ.trim().slice(0, 500);
     const { conversationId } = req.body || {};
     let convs = await Conversation.find({ ownerId: req.ownerId, status: { $in: ['open', 'waiting_response', 'completed'] } }).sort({ lastMessageAt: -1 }).limit(80);

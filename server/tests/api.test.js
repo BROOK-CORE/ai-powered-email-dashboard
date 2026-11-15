@@ -3,6 +3,7 @@ import request from 'supertest';
 import { connectDb, disconnectDb } from '../src/config/db.js';
 import { createApp } from '../src/app.js';
 import { ensureDemoData } from '../src/seed/seed.js';
+import { getRecentSecurityEvents, clearSecurityEvents, scrubText } from '../src/services/securityLogger.js';
 
 let ctx;
 let api;
@@ -397,5 +398,37 @@ describe('security hardening', () => {
       password: 'correctPassword123',
     });
     expect(locked.status).toBe(429);
+  });
+
+  it('emits redacted structured security logs and threshold alerts without PII or secrets', async () => {
+    clearSecurityEvents();
+
+    // Trigger failed login attempts, validation error, client role denial, and workspace clear
+    await api.post('/api/auth/login').send({ email: 'missing-user@example.com', password: 'SuperSecretPassword!99' });
+    await api.get('/api/conversations?accountId=not-an-object-id').set(auth(assistant));
+    await api.get('/api/conversations').set(auth(client));
+    await api.del('/api/conversations').set(auth(assistant));
+
+    const events = getRecentSecurityEvents();
+    expect(events.some((e) => e.event === 'auth.login_failed')).toBe(true);
+    expect(events.some((e) => e.event === 'validation.failed')).toBe(true);
+    expect(events.some((e) => e.event === 'authz.role_denied')).toBe(true);
+    const clearEvt = events.find((e) => e.event === 'admin.workspace_cleared');
+    expect(clearEvt).toBeTruthy();
+    expect(clearEvt.alert).toBe(true);
+    expect(clearEvt.alertOwner).toBe('workspace-owner');
+
+    // Verify no plaintext passwords, emails, or bearer JWTs appear in serialized security logs
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain('SuperSecretPassword!99');
+    expect(serialized).not.toContain('missing-user@example.com');
+    expect(serialized).not.toContain(assistant);
+    expect(serialized).not.toContain('Bearer ');
+
+    // Verify URL API-key / connection string scrubbing
+    const scrubbed = scrubText('Request failed for https://generativelanguage.googleapis.com/v1beta?key=AIzaFakeSecretKey and Bearer tok_123');
+    expect(scrubbed).not.toContain('AIzaFakeSecretKey');
+    expect(scrubbed).not.toContain('tok_123');
+    expect(scrubbed).toContain('[REDACTED]');
   });
 });
