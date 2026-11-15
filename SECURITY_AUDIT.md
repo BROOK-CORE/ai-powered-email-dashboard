@@ -34,10 +34,10 @@
 - **Changes Made:** Created `securityHeaders` middleware in [server/src/middleware/security.js](server/src/middleware/security.js) and registered it in [server/src/app.js](server/src/app.js). Sets:
   - `default-src 'self'`
   - `script-src 'self'` *(no `'unsafe-inline'`; verified `client/dist/index.html` uses only external bundled module scripts)*
-  - `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` *(allows Tailwind CSS bundle, React progress-bar inline styles, and Inter/Plus Jakarta Sans stylesheet)*
+  - `style-src 'self' https://fonts.googleapis.com` in production *(no `'unsafe-inline'`; all dynamic React styles refactored to Tailwind utility classes and CSS animations in `ui.jsx`, `ConnectWizard.jsx`, `ThreadDetail.jsx`, `Assistant.jsx`, and `index.css`; `'unsafe-inline'` retained only in local dev for Vite HMR)*
   - `font-src 'self' https://fonts.gstatic.com data:`
   - `img-src 'self' data: blob:`
-  - `connect-src 'self'`
+  - `connect-src 'self'` *(plus explicit `ALLOWED_ORIGINS` / `PUBLIC_API_ORIGIN` when split-origin hosting is configured)*
   - `object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
   - Adds `upgrade-insecure-requests` automatically on HTTPS / Render proxy requests.
 
@@ -47,7 +47,7 @@
 - **Severity:** Critical *(SecureScanr: -20 pts)*
 - **Original Evidence:** `server/src/app.js` lines 15–35 (did not configure `trust proxy` or `Strict-Transport-Security`).
 - **Why It Was a Problem & Concrete Attack Scenario:** Without HSTS, a user visiting `http://ai-powered-email-dashboard.onrender.com` on untrusted Wi-Fi before TLS upgrade can be intercepted by a network attacker performing an SSL-stripping / protocol-downgrade attack to capture Bearer tokens or login credentials.
-- **Changes Made:** Enabled `app.set('trust proxy', 1)` in [server/src/app.js](server/src/app.js) so Express inspects `X-Forwarded-Proto` behind Render/Cloudflare, and set `Strict-Transport-Security: max-age=31536000; includeSubDomains` whenever `NODE_ENV === 'production'` or the request arrived over HTTPS.
+- **Changes Made:** Enabled `app.set('trust proxy', 1)` in [server/src/app.js](server/src/app.js) so Express inspects `X-Forwarded-Proto` behind Render/Cloudflare, sets `Strict-Transport-Security: max-age=31536000; includeSubDomains` **only when `isHttps` is true** (RFC 6797 §7.2 compliance — never emitted over plain HTTP), and added `enforceHttps` middleware in production (`308` redirect on forwarded plain-HTTP `GET`/`HEAD`, `426` on HTTP mutations).
 
 ---
 
@@ -163,6 +163,17 @@
 
 ---
 
+### SEC-13: Missing Server-Side Logout Revocation, Auth Lifecycle & Login Hardening
+- **Severity:** High / Medium *(Session Revocation & Auth Lifecycle Follow-Up)*
+- **Original Evidence:** `client/src/auth.jsx` (`logout()` cleared `localStorage` only without server revocation), `server/src/middleware/auth.js` (`7d` JWT without `jti` or `tokenVersion`), `server/src/routes/authRoutes.js` (`409` duplicate registration oracle, no `POST /logout` or `POST /change-password`, skipped `bcrypt.compare` timing gap on nonexistent emails, `128`-char vs bcrypt 72-byte mismatch, per-IP rate limiting without per-account lockout), `server/src/seed/seed.js` (`Math.random()` in demo seed hash).
+- **Changes Made:**
+  - Created [server/src/models/RevokedToken.js](server/src/models/RevokedToken.js) (TTL-indexed `jti` denylist) and added `tokenVersion`, `failedLoginAttempts`, and `lockUntil` to [User.js](server/src/models/User.js).
+  - Updated [auth.js](server/src/middleware/auth.js) (`1d` TTL, `jti` + `tv` claims verified on every request, orphaned client workspace check against surviving assistant records).
+  - Added `POST /api/auth/logout` (single-session `jti` revocation + optional `allSessions=true` version bump) and `POST /api/auth/change-password` (verifies current password, bumps `tokenVersion`, issues fresh token) in [authRoutes.js](server/src/routes/authRoutes.js), plus constant-cost dummy bcrypt verification, strict `isValidEmail`, `72`-byte UTF-8 bcrypt bound, per-account 10-attempt lockout (`15m`), and uniform non-enumerating registration failure wording.
+  - Replaced `Math.random()` demo hash entropy with `crypto.randomBytes(32)` in [seed.js](server/src/seed/seed.js) and added cross-tab `storage` listener + logout revocation call in [client/src/auth.jsx](client/src/auth.jsx) / [client/src/api.js](client/src/api.js).
+
+---
+
 ## Checks That Passed (No Vulnerability Found)
 
 - **Git History & Client Secret Exposure (`git log -p --all` & `client/` scan):** Confirmed zero API keys (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`), zero `MONGODB_URI` connection strings, and zero `.env` files exist in client source/build bundles or git commit history (`.env` is gitignored).
@@ -173,7 +184,7 @@
 
 ## Verification Summary (Post-Fix & Live Deploy)
 
-- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`20 passed (20)`** tests (including security regression tests covering HTTP headers + HTTPS HSTS + strict CORS rejection, client-role IDOR blocks, and NoSQL/input-type rejection).
+- **Automated Backend + Security Test Suite (`npm --workspace=server test`):** `1 passed (1)` test file, **`23 passed (23)`** tests (including security regression tests covering HTTP headers, HTTPS-only HSTS + strict production `style-src` CSP, forwarded plain-HTTP `308` redirect, strict CORS rejection, client-role IDOR blocks, NoSQL/input-type rejection, logout JWT revocation, password change invalidation, and per-account login lockout).
 - **Production Client Build (`npm --workspace=client run build`):** Succeeded (`1590 modules transformed`, emitted `dist/index.html` with external bundled assets only — compatible with `script-src 'self'`).
 - **Live Render Verification (`https://ai-powered-email-dashboard.onrender.com`):** Verified live HTTP response headers on `/` and `/api/health` confirm `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cache-Control: no-store` on `/api/*`, `ratelimit-limit: 300`, absence of `X-Powered-By`, rejection of untrusted cross-origin `Origin` headers, and `401 Unauthorized` on unauthenticated `/api/conversations`.
 

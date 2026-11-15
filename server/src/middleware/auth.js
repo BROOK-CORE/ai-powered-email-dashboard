@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { RevokedToken } from '../models/RevokedToken.js';
 
 const EPHEMERAL_DEV_SECRET = crypto.randomBytes(48).toString('hex');
 
@@ -16,10 +17,19 @@ function getSecret() {
 }
 
 export function signToken(user) {
-  return jwt.sign({ sub: String(user._id), role: user.role }, getSecret(), {
-    algorithm: 'HS256',
-    expiresIn: '7d',
-  });
+  return jwt.sign(
+    {
+      sub: String(user._id),
+      role: user.role,
+      tv: user.tokenVersion ?? 0,
+      jti: crypto.randomUUID(),
+    },
+    getSecret(),
+    {
+      algorithm: 'HS256',
+      expiresIn: '1d',
+    }
+  );
 }
 
 export async function requireAuth(req, res, next) {
@@ -29,13 +39,29 @@ export async function requireAuth(req, res, next) {
     if (!token || token.length > 2048) return res.status(401).json({ error: 'Authentication required' });
 
     const payload = jwt.verify(token, getSecret(), { algorithms: ['HS256'] });
+    if (!payload.jti || typeof payload.jti !== 'string') {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+    if (await RevokedToken.exists({ jti: payload.jti })) {
+      return res.status(401).json({ error: 'Session has been signed out' });
+    }
+
     const user = await User.findById(payload.sub);
-    if (!user || user.role !== payload.role) return res.status(401).json({ error: 'User no longer exists' });
+    if (!user || user.role !== payload.role || (payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
 
     req.user = user;
-    // Clients operate inside their assistant's workspace.
-    req.ownerId = user.role === 'assistant' ? user._id : user.assistantId;
-    if (!req.ownerId) return res.status(403).json({ error: 'No assistant workspace linked to this account' });
+    req.tokenPayload = payload;
+    // Clients operate inside their assistant's workspace; fail closed if linked assistant no longer exists.
+    if (user.role === 'assistant') {
+      req.ownerId = user._id;
+    } else {
+      if (!user.assistantId) return res.status(403).json({ error: 'No assistant workspace linked to this account' });
+      const ownerExists = await User.exists({ _id: user.assistantId, role: 'assistant' });
+      if (!ownerExists) return res.status(403).json({ error: 'Linked assistant workspace no longer exists' });
+      req.ownerId = user.assistantId;
+    }
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired session' });

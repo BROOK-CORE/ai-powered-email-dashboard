@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Archive, ArrowLeft, CalendarClock, CheckCircle2, Eye, EyeOff, HelpCircle, Lightbulb, MailOpen, RotateCcw, Send, Sparkles, Star, Wand2 } from 'lucide-react';
 import { api } from '../api.js';
-import { Avatar, Button, ErrorState, ProviderMark, RESP, RespBadge, ReviewFlag, Spinner, cx, fmtDateTime, timeAgo, useToast } from './ui.jsx';
+import { Avatar, Button, ErrorState, ProviderMark, RESP, RespBadge, ReviewFlag, Spinner, cx, fmtDateTime, pctWidthClass, timeAgo, useToast } from './ui.jsx';
 
 const TONES = [
   ['professional', 'Professional'],
@@ -187,7 +187,7 @@ export default function ThreadDetail({ id, onChanged, onClose, onAsk }) {
               </div>
               <div className="mt-3 flex items-center gap-3">
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                  <div className={cx('h-full rounded-full', r.bar)} style={{ width: `${Math.round(conv.aiConfidence * 100)}%` }} />
+                  <div className={cx('h-full rounded-full', r.bar, pctWidthClass(conv.aiConfidence * 100))} />
                 </div>
                 <span className="text-xs font-semibold tabular-nums text-slate-500">{conv.manualOverride ? 'Set manually' : `${Math.round(conv.aiConfidence * 100)}% confident`}</span>
               </div>

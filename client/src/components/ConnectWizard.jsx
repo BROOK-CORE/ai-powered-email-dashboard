@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, KeyRound, Lock, Mail, ShieldCheck, Sparkles } from 'lucide-react';
 import { api } from '../api.js';
-import { Button, ProviderMark, cx } from './ui.jsx';
+import { Button, ProviderMark, cx, pctWidthClass } from './ui.jsx';
 
 const PROVIDERS = [
   { id: 'gmail', name: 'Gmail', hint: 'Google Workspace or personal Gmail', consent: 'Google' },
@@ -185,7 +185,7 @@ export default function ConnectWizard({ onDone, onCancel, defaultClient = '' }) 
           <h2 className="font-display text-xl font-extrabold text-slate-900">Syncing {form.clientName.split(' ')[0]}’s inbox</h2>
           <p className="mt-1 text-sm text-slate-500">{SYNC_STEPS[stage]}…</p>
           <div className="mx-auto mt-6 h-2 w-full max-w-sm overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-150" style={{ width: `${progress}%` }} />
+            <div className={cx('h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-150', pctWidthClass(progress))} />
           </div>
           <ul className="mx-auto mt-6 max-w-xs space-y-2 text-left text-sm">
             {SYNC_STEPS.map((s, i) => (

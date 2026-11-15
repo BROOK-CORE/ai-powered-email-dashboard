@@ -24,12 +24,22 @@ async function request(method, path, body) {
     /* empty body */
   }
   if (!res.ok) {
-    if (res.status === 401 && token) window.dispatchEvent(new Event('inboxly:logout'));
+    if (res.status === 401 && token && !path.startsWith('/auth/logout')) window.dispatchEvent(new Event('inboxly:logout'));
     const err = new Error(data?.error || `Something went wrong (${res.status})`);
     err.status = res.status;
     throw err;
   }
   return data;
+}
+
+export function revokeSession(token) {
+  if (!token) return;
+  fetch(`${BASE}/api/auth/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: '{}',
+    keepalive: true,
+  }).catch(() => {});
 }
 
 export const api = {

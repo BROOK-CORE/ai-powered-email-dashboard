@@ -98,10 +98,11 @@ F:\Ai powered email dashboard\
         |-- app.js                  # Express middleware, /api routes, /api/health, client/dist SPA fallback
         |-- config/db.js            # Connects MONGODB_URI or starts local cached MongoMemoryServer
         |-- middleware/
-        |   |-- auth.js             # JWT signing (HS256 + prod guard), requireAuth, requireAssistant, asyncHandler
-        |   `-- security.js         # strictCors, securityHeaders (CSP/HSTS/XFO), createRateLimiter, isObjectId
+        |   |-- auth.js             # JWT signing (1d HS256, jti + tv revocation, prod guard), requireAuth, requireAssistant, asyncHandler
+        |   `-- security.js         # strictCors, securityHeaders (strict CSP, HTTPS-only HSTS), enforceHttps, rate limits, isObjectId
         |-- models/
-        |   |-- User.js             # Assistant & linked client profiles
+        |   |-- User.js             # Assistant & linked client profiles (tokenVersion + lockout fields)
+        |   |-- RevokedToken.js     # TTL-indexed JWT denylist (`jti`) for immediate server-side logout
         |   |-- EmailAccount.js     # Connected Gmail/Outlook/custom API mailboxes
         |   |-- Conversation.js     # Threads, embedded messages, AI insights, drafts, undo window
         |   `-- Notification.js     # Assistant alerts triggered by triage & client actions
@@ -188,7 +189,9 @@ All `/api/*` endpoints except `/api/health`, `/api/auth/register`, `/api/auth/lo
 |---|---|---|
 | `GET /api/health` | Public | Returns `{ ok: true, ai, time }` (`ai` is active provider) |
 | `POST /api/auth/register` | Public | Create assistant account (`{ name, email, password }`) -> `{ token, user }` |
-| `POST /api/auth/login` | Public | Email/password login (`{ email, password }`) |
+| `POST /api/auth/login` | Public | Email/password login (`{ email, password }`, per-account lockout) |
+| `POST /api/auth/logout` | Auth | Revokes active session token (`jti` denylist; `allSessions=true` bumps `tokenVersion`) |
+| `POST /api/auth/change-password` | Auth | Verifies current password, updates hash, bumps `tokenVersion`, returns fresh token |
 | `POST /api/auth/demo` | Public | 1-click demo session (`{ role: 'assistant' | 'client' }`) |
 | `GET /api/auth/me` | Auth | Returns current user profile |
 | `PATCH /api/auth/onboarding` | Auth | Marks `onboardingCompleted = true` |

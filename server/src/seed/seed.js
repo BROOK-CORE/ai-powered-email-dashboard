@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { User } from '../models/User.js';
 import { EmailAccount } from '../models/EmailAccount.js';
@@ -37,7 +38,7 @@ export async function ensureDemoData({ seedMessages = process.env.SEED_DEMO_MESS
     title: 'Senior Personal Assistant',
     isDemo: true,
     onboardingCompleted: true,
-    passwordHash: await bcrypt.hash(`demo-${Math.random()}`, 8),
+    passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 8),
   });
   await User.create({
     name: 'Arjun Mehta',
@@ -47,7 +48,7 @@ export async function ensureDemoData({ seedMessages = process.env.SEED_DEMO_MESS
     assistantId: assistant._id,
     isDemo: true,
     onboardingCompleted: true,
-    passwordHash: await bcrypt.hash(`demo-${Math.random()}`, 8),
+    passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 8),
   });
 
   const gmail = await EmailAccount.create({

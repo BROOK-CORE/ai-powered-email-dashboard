@@ -331,7 +331,7 @@ export default function Assistant() {
         {navOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <div className="absolute inset-0 bg-slate-900/40" onClick={() => setNavOpen(false)} />
-            <aside className="animate-slide-in absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-2xl" style={{ animationName: 'fade-up' }}>
+            <aside className="animate-fade-up absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
                 <Logo />
                 <button onClick={() => setNavOpen(false)} aria-label="Close menu" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>

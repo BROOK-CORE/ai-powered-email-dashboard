@@ -17,6 +17,29 @@ function allowedOrigins() {
   );
 }
 
+function safeConnectOrigins() {
+  const extra = [...allowedOrigins(), process.env.PUBLIC_API_ORIGIN || '']
+    .map((s) => s.trim())
+    .filter((s) => /^https?:\/\/[^;\s'"]+$/i.test(s));
+  return ["'self'", ...new Set(extra)].join(' ');
+}
+
+/** Reject or redirect plain HTTP forwarded requests in production before processing API/SPA routes. */
+export function enforceHttps(req, res, next) {
+  if (process.env.NODE_ENV !== 'production') return next();
+  const forwarded = req.headers['x-forwarded-proto']?.split(',')[0]?.trim().toLowerCase();
+  if (forwarded !== 'http') return next();
+
+  const host = req.get('host');
+  if (!host || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) {
+    return res.status(400).json({ error: 'Invalid Host header' });
+  }
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return res.redirect(308, `https://${host}${req.originalUrl}`);
+  }
+  return res.status(426).json({ error: 'HTTPS is required' });
+}
+
 /** Strict CORS policy: rejects wildcard (*) and permits only same-host, configured origins, or dev servers. */
 export const strictCors = cors((req, cb) => {
   const origin = req.headers.origin;
@@ -37,14 +60,18 @@ export const strictCors = cors((req, cb) => {
 /** HTTP hardening headers protecting against XSS, clickjacking, MIME-sniffing, and protocol downgrade. */
 export function securityHeaders(req, res, next) {
   const isHttps = req.secure || req.headers['x-forwarded-proto']?.split(',')[0]?.trim() === 'https';
+  const styleDirective =
+    process.env.NODE_ENV === 'production'
+      ? "style-src 'self' https://fonts.googleapis.com"
+      : "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com";
 
   const csp = [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    styleDirective,
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob:",
-    "connect-src 'self'",
+    `connect-src ${safeConnectOrigins()}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -60,7 +87,8 @@ export function securityHeaders(req, res, next) {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
 
-  if (process.env.NODE_ENV === 'production' || isHttps) {
+  // RFC 6797 §7.2: emit HSTS strictly over secure HTTPS responses (never over plain HTTP).
+  if (isHttps) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
   if (req.path.startsWith('/api')) {

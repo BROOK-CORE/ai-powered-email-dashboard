@@ -5,6 +5,14 @@ import { AlertTriangle, CheckCircle2, Info, Loader2, X, Inbox } from 'lucide-rea
 
 export const cx = (...a) => a.filter(Boolean).join(' ');
 
+const PCT_WIDTH = [
+  'w-0', 'w-[5%]', 'w-[10%]', 'w-[15%]', 'w-[20%]', 'w-[25%]', 'w-[30%]',
+  'w-[35%]', 'w-[40%]', 'w-[45%]', 'w-[50%]', 'w-[55%]', 'w-[60%]', 'w-[65%]',
+  'w-[70%]', 'w-[75%]', 'w-[80%]', 'w-[85%]', 'w-[90%]', 'w-[95%]', 'w-full',
+];
+
+export const pctWidthClass = (pct) => PCT_WIDTH[Math.max(0, Math.min(20, Math.round(Number(pct || 0) / 5)))];
+
 export function timeAgo(date) {
   const s = Math.max(1, Math.floor((Date.now() - new Date(date).getTime()) / 1000));
   if (s < 60) return 'just now';
@@ -283,7 +291,7 @@ export function ToastProvider({ children }) {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              {t.action && <div className="absolute bottom-0 left-0 h-0.5 bg-indigo-400" style={{ animation: `drain ${t.duration}ms linear forwards` }} />}
+              {t.action && <div className="animate-drain absolute bottom-0 left-0 h-0.5 bg-indigo-400" />}
             </div>
           );
         })}

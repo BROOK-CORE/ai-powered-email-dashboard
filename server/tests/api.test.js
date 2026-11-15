@@ -294,5 +294,108 @@ describe('security hardening', () => {
       .post('/api/auth/register')
       .send({ name: 'Eve', email: 'eve@test.dev', password: 'short' });
     expect(shortPw.status).toBe(400);
+
+    const badEmail = await api
+      .post('/api/auth/register')
+      .send({ name: 'Eve', email: 'eve@localhost', password: 'validpassword123' });
+    expect(badEmail.status).toBe(400);
+  });
+
+  it('enforces RFC-compliant HSTS, strict production style-src CSP, and forwarded HTTP redirect', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    const prevSecret = process.env.JWT_SECRET;
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = 'prod-test-secret-with-strong-length';
+    try {
+      const prodApp = request(createApp());
+
+      // Plain HTTP without HTTPS must omit HSTS (RFC 6797 §7.2)
+      const plainHttp = await prodApp.get('/api/health');
+      expect(plainHttp.status).toBe(200);
+      expect(plainHttp.headers['strict-transport-security']).toBeUndefined();
+      expect(plainHttp.headers['content-security-policy']).toContain("style-src 'self' https://fonts.googleapis.com");
+      expect(plainHttp.headers['content-security-policy']).not.toContain("'unsafe-inline'");
+
+      // Forwarded plain HTTP redirects GET/HEAD cleanly
+      const fwdHttp = await prodApp.get('/api/health').set('X-Forwarded-Proto', 'http').set('Host', 'example.com');
+      expect(fwdHttp.status).toBe(308);
+      expect(fwdHttp.headers.location).toBe('https://example.com/api/health');
+
+      // Forwarded HTTPS emits HSTS
+      const httpsRes = await prodApp.get('/api/health').set('X-Forwarded-Proto', 'https');
+      expect(httpsRes.status).toBe(200);
+      expect(httpsRes.headers['strict-transport-security']).toContain('max-age=31536000');
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+      process.env.JWT_SECRET = prevSecret;
+    }
+  });
+
+  it('revokes JWT on logout and invalidates older sessions on password change', async () => {
+    const reg = await api.post('/api/auth/register').send({
+      name: 'Sec User',
+      email: 'secuser@example.com',
+      password: 'initialPassword123',
+    });
+    expect(reg.status).toBe(201);
+    const token1 = reg.body.token;
+
+    // Duplicate registration returns uniform validation message instead of existence oracle
+    const dup = await api.post('/api/auth/register').send({
+      name: 'Sec User 2',
+      email: 'secuser@example.com',
+      password: 'anotherPassword123',
+    });
+    expect(dup.status).toBe(400);
+    expect(dup.body.error).not.toMatch(/already exists/i);
+
+    // Explicit logout revokes token1 immediately
+    const out = await api.post('/api/auth/logout').set(auth(token1)).send({});
+    expect(out.status).toBe(200);
+    const meAfterLogout = await api.get('/api/auth/me').set(auth(token1));
+    expect(meAfterLogout.status).toBe(401);
+
+    // Concurrent demo assistant session remains usable
+    expect((await api.get('/api/auth/me').set(auth(assistant))).status).toBe(200);
+
+    // Log back in, capture token2, change password -> token2 becomes invalid, token3 works
+    const loginRes = await api.post('/api/auth/login').send({
+      email: 'secuser@example.com',
+      password: 'initialPassword123',
+    });
+    expect(loginRes.status).toBe(200);
+    const token2 = loginRes.body.token;
+
+    const changed = await api
+      .post('/api/auth/change-password')
+      .set(auth(token2))
+      .send({ currentPassword: 'initialPassword123', newPassword: 'rotatedPassword456' });
+    expect(changed.status).toBe(200);
+    const token3 = changed.body.token;
+
+    expect((await api.get('/api/auth/me').set(auth(token2))).status).toBe(401);
+    expect((await api.get('/api/auth/me').set(auth(token3))).status).toBe(200);
+  });
+
+  it('throttles repeated failed logins per account with temporary lockout', async () => {
+    await api.post('/api/auth/register').send({
+      name: 'Lock Test',
+      email: 'locktest@example.com',
+      password: 'correctPassword123',
+    });
+
+    for (let i = 0; i < 10; i += 1) {
+      const bad = await api.post('/api/auth/login').send({
+        email: 'locktest@example.com',
+        password: 'wrongPassword123',
+      });
+      expect(bad.status).toBe(401);
+    }
+
+    const locked = await api.post('/api/auth/login').send({
+      email: 'locktest@example.com',
+      password: 'correctPassword123',
+    });
+    expect(locked.status).toBe(429);
   });
 });

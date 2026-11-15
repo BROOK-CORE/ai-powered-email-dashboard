@@ -8,7 +8,7 @@ import conversationRoutes from './routes/conversationRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import { activeProvider } from './services/aiService.js';
-import { strictCors, securityHeaders, createRateLimiter } from './middleware/security.js';
+import { strictCors, securityHeaders, enforceHttps, createRateLimiter } from './middleware/security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,6 +19,7 @@ export function createApp() {
   app.set('query parser', 'simple');
 
   app.use(securityHeaders);
+  app.use(enforceHttps);
   app.use(strictCors);
   app.use(express.json({ limit: '256kb' }));
 

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, getToken, setToken } from './api.js';
+import { api, getToken, revokeSession, setToken } from './api.js';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -8,15 +8,29 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(Boolean(getToken()));
 
-  const logout = useCallback(() => {
+  const logout = useCallback((revoke = true) => {
+    const token = getToken();
+    if (revoke !== false && token) revokeSession(token);
     setToken(null);
     setUser(null);
   }, []);
 
   useEffect(() => {
-    const onLogout = () => logout();
+    const onLogout = () => logout(false);
+    const onStorage = (e) => {
+      if (e.key !== 'inboxly_token') return;
+      if (!e.newValue) {
+        setUser(null);
+      } else {
+        api.get('/auth/me').then((d) => setUser(d.user)).catch(() => setUser(null));
+      }
+    };
     window.addEventListener('inboxly:logout', onLogout);
-    return () => window.removeEventListener('inboxly:logout', onLogout);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('inboxly:logout', onLogout);
+      window.removeEventListener('storage', onStorage);
+    };
   }, [logout]);
 
   useEffect(() => {

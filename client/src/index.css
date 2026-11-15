@@ -92,6 +92,9 @@ h3,
 .animate-pop {
   animation: pop 0.18s ease both;
 }
+.animate-drain {
+  animation: drain 5s linear forwards;
+}
 .skeleton {
   position: relative;
   overflow: hidden;
