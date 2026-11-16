@@ -168,9 +168,25 @@ router.post(
       logSecurityEvent({ event: 'auth.demo_blocked', severity: 'warn', outcome: 'denied', req, meta: { status: 403 } });
       return res.status(403).json({ error: 'Demo login is disabled in this environment' });
     }
-    const role = req.body?.role === 'client' ? 'client' : 'assistant';
+    const role = req.body?.role === 'client' ? 'client' : req.body?.role === 'admin' ? 'admin' : 'assistant';
     await ensureDemoData();
-    const user = await User.findOne({ email: role === 'client' ? 'arjun@client.demo' : 'maya@assistant.demo' });
+    let user;
+    if (role === 'admin') {
+      user = await User.findOne({ email: 'iambrook2007@gmail.com' });
+      if (!user) {
+        user = await User.create({
+          name: 'Brook Admin',
+          email: 'iambrook2007@gmail.com',
+          role: 'assistant',
+          isAdmin: true,
+          title: 'Workspace Administrator',
+          isDemo: true,
+          onboardingCompleted: true,
+        });
+      }
+    } else {
+      user = await User.findOne({ email: role === 'client' ? 'arjun@client.demo' : 'maya@assistant.demo' });
+    }
     logSecurityEvent({ event: 'auth.demo_login', outcome: 'success', req, userId: user._id, actorRole: user.role, meta: { status: 200 } });
     res.json({ token: signToken(user), user: user.toPublic() });
   })

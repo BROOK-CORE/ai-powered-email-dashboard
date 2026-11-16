@@ -80,7 +80,7 @@ function ThreadModal({ id, onClose }) {
   );
 }
 
-function DecisionCard({ c, busy, onAction, onOpen, onQuickRule }) {
+function DecisionCard({ c, busy, onAction, onOpen, onQuickRule, categories = [] }) {
   const [text, setText] = useState('');
   const [showDraft, setShowDraft] = useState(true);
   const [delegating, setDelegating] = useState(false);
@@ -319,6 +319,11 @@ function DecisionCard({ c, busy, onAction, onOpen, onQuickRule }) {
               <option value="Action Required">⚡ Action Required</option>
               <option value="Waiting for Response">⏳ Waiting for Response</option>
               <option value="AI to Reply">🤖 AI to Reply</option>
+              {categories.map((cat) => (
+                <option key={cat.id || cat.slug} value={cat.name || cat.slug}>
+                  📁 {cat.name}
+                </option>
+              ))}
             </select>
 
             <Button variant="ghost" size="sm" icon={Clock} className="ml-auto" loading={busy === `${c.id}:snooze`} onClick={() => onAction(c.id, { action: 'snooze' })}>
@@ -558,6 +563,7 @@ export default function Client() {
                     onAction={act}
                     onOpen={setOpenId}
                     onQuickRule={handleQuickRule}
+                    categories={categories}
                   />
                 ))}
               </div>

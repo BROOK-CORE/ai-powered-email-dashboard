@@ -85,26 +85,69 @@ async function clientQueue(ownerId, category = 'all') {
   // Category counts across the board for the client
   const [total, actionRequiredCount, importantCount, waitingResponseCount, aiReplyCount, snoozed, handled] = await Promise.all([
     Conversation.countDocuments(base),
-    Conversation.countDocuments({ ownerId, status: 'open', segments: 'action_required' }),
-    Conversation.countDocuments({ ownerId, status: ACTIVE, $or: [{ isImportant: true }, { segments: 'important' }, { customCategory: 'Important' }] }),
+    Conversation.countDocuments({
+      ownerId,
+      status: 'open',
+      $or: [
+        { segments: 'action_required' },
+        { customCategory: { $regex: /^action.*required$/i } },
+        { customCategory: { $regex: /^immediate action/i } },
+      ],
+    }),
+    Conversation.countDocuments({
+      ownerId,
+      status: ACTIVE,
+      $or: [{ isImportant: true }, { segments: 'important' }, { customCategory: { $regex: /^important$/i } }],
+    }),
     Conversation.countDocuments({ ownerId, status: 'waiting_response' }),
-    Conversation.countDocuments({ ownerId, status: ACTIVE, responsibility: 'assistant_to_reply' }),
+    Conversation.countDocuments({
+      ownerId,
+      status: ACTIVE,
+      $or: [{ responsibility: 'assistant_to_reply' }, { customCategory: { $regex: /^ai.*reply$/i } }],
+    }),
     Conversation.countDocuments({ ownerId, status: 'open', snoozedUntil: { $gt: now } }),
     Conversation.countDocuments({ ownerId, status: { $in: ['completed', 'waiting_response'] } }),
   ]);
 
-  const q = { ownerId, status: ACTIVE, $or: [{ snonozedUntil: null }, { snoozedUntil: null }, { snoozedUntil: { $lte: now } }] };
-  if (category === 'action_required') {
-    q.segments = 'action_required';
+  const q = {
+    ownerId,
+    status: ACTIVE,
+    $and: [
+      {
+        $or: [{ snoozedUntil: null }, { snoozedUntil: { $lte: now } }],
+      },
+    ],
+  };
+
+  const cat = typeof category === 'string' ? category.trim().toLowerCase() : 'all';
+
+  if (cat === 'action_required') {
     q.status = 'open';
-  } else if (category === 'important') {
-    q.$and = [{ $or: [{ isImportant: true }, { segments: 'important' }, { customCategory: 'Important' }] }];
-  } else if (category === 'waiting_response') {
+    q.$and.push({
+      $or: [
+        { segments: 'action_required' },
+        { customCategory: { $regex: /^action.*required$/i } },
+        { customCategory: { $regex: /^immediate action/i } },
+      ],
+    });
+  } else if (cat === 'important') {
+    q.$and.push({
+      $or: [{ isImportant: true }, { segments: 'important' }, { customCategory: { $regex: /^important$/i } }],
+    });
+  } else if (cat === 'waiting_response') {
     q.status = 'waiting_response';
-  } else if (category === 'ai_reply') {
-    q.responsibility = 'assistant_to_reply';
-  } else if (category && category !== 'all') {
-    q.$and = [{ $or: [{ customCategory: category }, { segments: category }] }];
+  } else if (cat === 'ai_reply') {
+    q.$and.push({
+      $or: [{ responsibility: 'assistant_to_reply' }, { customCategory: { $regex: /^ai.*reply$/i } }],
+    });
+  } else if (cat && cat !== 'all') {
+    q.$and.push({
+      $or: [
+        { customCategory: category },
+        { customCategory: new RegExp(`^${escapeRegex(category)}$`, 'i') },
+        { segments: category },
+      ],
+    });
   }
 
   const items = await Conversation.find(q).sort({ isImportant: -1, lastMessageAt: -1 }).limit(100);

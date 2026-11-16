@@ -275,7 +275,12 @@ export default function Settings() {
                 </div>
 
                 <div className="mt-6 space-y-3">
-                  {accounts.length === 0 && (
+                  {user?.role === 'client' && (
+                    <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] p-4 text-xs text-[#1E40AF]">
+                      Connected mailbox identities for your executive portal are linked and synchronized via your personal assistant workspace. To disconnect or add new identities, request your assistant or super administrator.
+                    </div>
+                  )}
+                  {user?.role !== 'client' && accounts.length === 0 && (
                     <p className="caption-2 text-[#73706D]">No mailboxes connected to this workspace.</p>
                   )}
                   {accounts.map((a) => (

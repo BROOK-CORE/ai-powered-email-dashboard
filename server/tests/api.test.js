@@ -602,5 +602,17 @@ describe('security hardening', () => {
     const overviewRes = await api.get('/api/admin/system-overview').set({ Authorization: `Bearer ${brookToken}` });
     expect(overviewRes.status).toBe(200);
     expect(overviewRes.body.stats.totalUsers).toBeGreaterThan(0);
+
+    // 6. 1-click admin demo login for iambrook2007
+    const adminDemoRes = await api.post('/api/auth/demo').send({ role: 'admin' });
+    expect(adminDemoRes.status).toBe(200);
+    expect(adminDemoRes.body.user.email).toBe('iambrook2007@gmail.com');
+    expect(adminDemoRes.body.user.isAdmin).toBe(true);
+
+    // 7. Client category assignment & client-queue filtering
+    const queueBefore = await api.get('/api/conversations/client-queue?category=important').set(auth(client));
+    expect(queueBefore.status).toBe(200);
+    expect(queueBefore.body.stats).toHaveProperty('importantCount');
+    expect(queueBefore.body.stats).toHaveProperty('actionRequiredCount');
   });
 });

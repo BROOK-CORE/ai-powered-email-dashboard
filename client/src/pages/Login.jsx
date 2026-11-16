@@ -308,6 +308,9 @@ export default function Login() {
             <Button variant="secondary" size="sm" loading={busy === 'client'} onClick={() => run('client', () => demo('client'))}>
               Demo as Client
             </Button>
+            <Button variant="secondary" size="sm" loading={busy === 'admin'} className="border-[#F59E0B]/40 text-[#B45309]" onClick={() => run('admin', () => demo('admin'))}>
+              Admin (iambrook2007)
+            </Button>
             <Button variant="primary" size="sm" loading={busy === 'assistant'} onClick={() => run('assistant', () => demo('assistant'))}>
               Open workspace
             </Button>
@@ -349,6 +352,9 @@ export default function Login() {
               </Button>
               <Button variant="secondary" size="lg" className="w-full" onClick={() => { setMobileMenu(false); run('client', () => demo('client')); }}>
                 Demo as Client
+              </Button>
+              <Button variant="secondary" size="lg" className="w-full border-[#F59E0B]/40 bg-[#FEF3C7] text-[#B45309]" onClick={() => { setMobileMenu(false); run('admin', () => demo('admin')); }}>
+                Super Admin (iambrook2007)
               </Button>
             </div>
           </div>
@@ -397,6 +403,16 @@ export default function Login() {
                   onClick={() => run('client', () => demo('client'))}
                 >
                   Demo as Client
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  loading={busy === 'admin'}
+                  icon={ShieldCheck}
+                  className="border-[#F59E0B]/40 bg-[#FEF3C7]/40 text-[#B45309] hover:bg-[#FEF3C7]"
+                  onClick={() => run('admin', () => demo('admin'))}
+                >
+                  Admin (iambrook2007)
                 </Button>
               </div>
 
