@@ -37,8 +37,12 @@ export default function Accounts() {
   const sync = async (a) => {
     setBusy(a.id);
     try {
-      await api.post(`/accounts/${a.id}/sync`);
-      toast.push(`${a.clientEmail} is up to date`);
+      const res = await api.post(`/accounts/${a.id}/sync`);
+      if (res?.isLive) {
+        toast.push(`${a.clientEmail}: synced ${res.imported} new email${res.imported === 1 ? '' : 's'}`);
+      } else {
+        toast.push(`${a.clientEmail} is up to date`);
+      }
       await load();
     } catch (e) {
       toast.push(e.message, { type: 'error' });
@@ -161,7 +165,7 @@ export default function Accounts() {
         </ul>
         {accounts?.length > 0 && (
           <p className="caption-4 mt-6 flex items-center justify-center gap-1.5 text-[#73706D]">
-            <CheckCircle2 className="h-3.5 w-3.5 text-[#059669]" /> Sandbox environment: connections and sync run with realistic sample threads.
+            <CheckCircle2 className="h-3.5 w-3.5 text-[#059669]" /> Mailbox sync: supports live IMAP / App Password sync for real emails and simulated sandbox preview.
           </p>
         )}
       </main>

@@ -5,6 +5,7 @@ import { requireAuth, requireAssistant, asyncHandler } from '../middleware/auth.
 import { isObjectId, isValidEmail } from '../middleware/security.js';
 import { seedAccountInbox, providerColor } from '../seed/seed.js';
 import { logSecurityEvent } from '../services/securityLogger.js';
+import { testImapConnection, syncImapMailbox } from '../services/imapService.js';
 
 const router = Router();
 router.use(requireAuth, requireAssistant);
@@ -31,11 +32,24 @@ router.get(
   })
 );
 
-// Simulated OAuth / API-key connection: creates the account, "syncs" and imports a realistic inbox.
+// Test live IMAP connection before connecting
+router.post(
+  '/test-imap',
+  asyncHandler(async (req, res) => {
+    const { provider, email, password, host, port } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    const result = await testImapConnection({ provider, email, password, host, port });
+    res.json(result);
+  })
+);
+
+// Connect a mailbox (supports live IMAP/App-Password or simulated sandbox)
 router.post(
   '/connect',
   asyncHandler(async (req, res) => {
-    const { provider, clientName, clientEmail, connectionType } = req.body || {};
+    const { provider, clientName, clientEmail, connectionType, appPassword, imapHost, imapPort } = req.body || {};
     if (!['gmail', 'outlook', 'custom_api'].includes(provider)) return res.status(400).json({ error: 'Unsupported provider' });
     if (typeof clientName !== 'string' || typeof clientEmail !== 'string' || !clientName.trim() || !clientEmail.trim()) {
       return res.status(400).json({ error: 'Client name and email are required' });
@@ -46,18 +60,44 @@ router.post(
     if (await EmailAccount.findOne({ ownerId: req.ownerId, clientEmail: cleanEmail, provider })) {
       return res.status(409).json({ error: 'This mailbox is already connected' });
     }
+
+    const isLive = connectionType === 'imap_live' && Boolean(appPassword);
+
     const account = await EmailAccount.create({
       ownerId: req.ownerId,
       clientName: cleanName,
       clientEmail: cleanEmail,
       provider,
-      connectionType: connectionType === 'api_key_bridge' || provider === 'custom_api' ? 'api_key_bridge' : 'oauth_simulated',
+      connectionType: isLive ? 'imap_live' : connectionType === 'api_key_bridge' || provider === 'custom_api' ? 'api_key_bridge' : 'oauth_simulated',
       status: 'syncing',
+      imapHost: imapHost || '',
+      imapPort: Number(imapPort) || 993,
       color: providerColor(provider),
     });
-    const imported = await seedAccountInbox(req.ownerId, account, req.user.name);
-    logSecurityEvent({ event: 'admin.account_connected', outcome: 'success', req, targetId: account._id, meta: { provider, count: imported, status: 201 } });
-    res.status(201).json({ account: (await withCounts(req.ownerId, [account]))[0], imported });
+
+    let imported = 0;
+    try {
+      if (isLive) {
+        const syncRes = await syncImapMailbox({
+          ownerId: req.ownerId,
+          account,
+          password: appPassword,
+          limit: 15,
+          replaceExisting: true,
+          req,
+        });
+        imported = syncRes.count;
+      } else {
+        imported = await seedAccountInbox(req.ownerId, account, req.user.name);
+      }
+    } catch (err) {
+      await account.deleteOne().catch(() => {});
+      logSecurityEvent({ event: 'admin.account_connect_failed', severity: 'warn', outcome: 'failure', req, meta: { error: err.message, status: 400 } });
+      return res.status(400).json({ error: err.message || 'Unable to connect to mailbox.' });
+    }
+
+    logSecurityEvent({ event: 'admin.account_connected', outcome: 'success', req, targetId: account._id, meta: { provider, count: imported, isLive, status: 201 } });
+    res.status(201).json({ account: (await withCounts(req.ownerId, [account]))[0], imported, isLive });
   })
 );
 
@@ -70,10 +110,33 @@ router.post(
     }
     const account = await EmailAccount.findOne({ _id: req.params.id, ownerId: req.ownerId });
     if (!account) return res.status(404).json({ error: 'Account not found' });
-    account.lastSyncedAt = new Date();
-    account.status = 'connected';
-    await account.save();
-    res.json({ account: (await withCounts(req.ownerId, [account]))[0] });
+
+    const { appPassword } = req.body || {};
+    let imported = 0;
+    let isLive = false;
+
+    if (appPassword || account.encryptedPassword) {
+      try {
+        const syncRes = await syncImapMailbox({
+          ownerId: req.ownerId,
+          account,
+          password: appPassword,
+          limit: 15,
+          replaceExisting: false,
+          req,
+        });
+        imported = syncRes.count;
+        isLive = true;
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+    } else {
+      account.lastSyncedAt = new Date();
+      account.status = 'connected';
+      await account.save();
+    }
+
+    res.json({ account: (await withCounts(req.ownerId, [account]))[0], imported, isLive });
   })
 );
 

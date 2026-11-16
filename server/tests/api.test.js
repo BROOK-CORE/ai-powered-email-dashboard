@@ -516,4 +516,28 @@ describe('security hardening', () => {
     expect(scrubbed).not.toContain('tok_123');
     expect(scrubbed).toContain('[REDACTED]');
   });
+
+  it('securely encrypts and decrypts IMAP credentials with AES-256-GCM and resolves provider configs', async () => {
+    const { encryptPassword, decryptPassword, resolveImapConfig } = await import('../src/services/imapService.js');
+    const secret = 'my-super-secret-16-char-app-pass';
+    const enc = encryptPassword(secret);
+    expect(enc).toBeTruthy();
+    expect(enc).not.toBe(secret);
+    expect(enc.split(':').length).toBe(3); // iv:tag:ciphertext
+    const dec = decryptPassword(enc);
+    expect(dec).toBe(secret);
+
+    const gmailConfig = resolveImapConfig('gmail');
+    expect(gmailConfig.host).toBe('imap.gmail.com');
+    expect(gmailConfig.port).toBe(993);
+    expect(gmailConfig.secure).toBe(true);
+
+    const outlookConfig = resolveImapConfig('outlook');
+    expect(outlookConfig.host).toBe('outlook.office365.com');
+    expect(outlookConfig.port).toBe(993);
+
+    // Validate test-imap endpoint rejects empty payloads cleanly
+    const emptyTest = await api.post('/api/accounts/test-imap').set(auth(assistant)).send({});
+    expect(emptyTest.status).toBe(400);
+  });
 });

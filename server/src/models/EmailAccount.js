@@ -6,7 +6,14 @@ const emailAccountSchema = new mongoose.Schema(
     clientName: { type: String, required: true },
     clientEmail: { type: String, required: true },
     provider: { type: String, enum: ['gmail', 'outlook', 'custom_api'], required: true },
-    connectionType: { type: String, enum: ['oauth_simulated', 'api_key_bridge'], default: 'oauth_simulated' },
+    connectionType: {
+      type: String,
+      enum: ['oauth_simulated', 'api_key_bridge', 'imap_live'],
+      default: 'oauth_simulated',
+    },
+    encryptedPassword: { type: String, default: null },
+    imapHost: { type: String, default: '' },
+    imapPort: { type: Number, default: 993 },
     status: {
       type: String,
       enum: ['connected', 'syncing', 'attention_needed', 'disconnected'],
