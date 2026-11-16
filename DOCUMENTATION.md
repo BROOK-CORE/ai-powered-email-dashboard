@@ -70,51 +70,59 @@ F:\Ai powered email dashboard\
 |   |-- public/favicon.svg      # Inboxly brand icon
 |   `-- src/
 |       |-- main.jsx            # React DOM mount
-|       |-- index.css           # Tailwind v4 setup + custom utility animations
-|       |-- App.jsx             # Router & role-based route guards (AuthGate, Guard)
+|       |-- index.css           # Tailwind v4 setup + dark mode tokens & utility animations
+|       |-- theme.jsx           # ThemeProvider, ThemeToggle & dark/light persistence
+|       |-- App.jsx             # Router, ThemeProvider wrap & role-based route guards (AuthGate, Guard)
 |       |-- api.js              # Fetch client (Bearer JWT + automatic 401 logout event)
 |       |-- auth.jsx            # AuthProvider context (demo, login, register, onboarding)
 |       |-- components/
 |       |   |-- ui.jsx          # Design tokens, RESP badges, Modal, Drawer, ToastProvider
 |       |   |-- ConnectWizard.jsx   # Multi-step Gmail/Outlook/API-key connection wizard
+|       |   |-- RuleManagerModal.jsx# Client & assistant auto-routing rule + custom category modal
 |       |   |-- ThreadList.jsx      # Segment/search list + empty-inbox "Simulate first message" CTA
-|       |   |-- ThreadDetail.jsx      # AI insights, ownership history, draft composer & staging
-|       |   |-- CopilotDrawer.jsx     # Slide-over "Ask AI" Q&A drawer with thread shortcuts
-|       |   |-- SimulateModal.jsx     # Live incoming email & follow-up thread simulator
-|       |   `-- NotificationBell.jsx  # Real-time assistant alert dropdown + mark-all-read
+|       |   |-- ThreadDetail.jsx    # AI insights, ownership history, draft composer & staging
+|       |   |-- CopilotDrawer.jsx   # Slide-over "Ask AI" Q&A drawer with thread shortcuts
+|       |   |-- SimulateModal.jsx   # Live incoming email & follow-up thread simulator
+|       |   `-- NotificationBell.jsx# Real-time assistant alert dropdown + mark-all-read
 |       `-- pages/
 |           |-- Login.jsx           # Standard auth + 1-click "Demo as Assistant" / "Demo as Client"
 |           |-- Onboarding.jsx      # 2-step first-run assistant intro + inbox wizard
-|           |-- Assistant.jsx       # 3-column triage dashboard, KPIs, segments, clear-inbox action
-|           |-- Client.jsx          # Focused Executive Client Portal with audio brief & 1-tap cards
-|           `-- Accounts.jsx        # Connected mailbox cards, manual sync & disconnect
+|           |-- Assistant.jsx       # 3-column triage dashboard, KPIs, custom categories, verification banner
+|           |-- Client.jsx          # Categorized views (Action, Important, Waiting, AI Reply), rules, 1-tap cards
+|           |-- Accounts.jsx        # Connected mailbox cards, manual sync & disconnect
+|           `-- Settings.jsx        # Dedicated Settings: Disconnect ID, E2E toggle, Assistant verifier, Super Admin
 |
 `-- server/
     |-- package.json                # Server dependencies & Vitest script
     |-- vitest.config.js            # Vitest config pinning F: binary cache & heuristic test mode
-    |-- tests/api.test.js           # Automated API test suite
+    |-- tests/api.test.js           # Automated API test suite (28 passing tests)
     `-- src/
         |-- index.js                # Entry point: loads .env, connects DB, seeds users/accounts, listens
         |-- app.js                  # Express middleware, /api routes, /api/health, client/dist SPA fallback
         |-- config/db.js            # Connects MONGODB_URI or starts local cached MongoMemoryServer
         |-- middleware/
-        |   |-- auth.js             # JWT signing (1d HS256, jti + tv revocation, prod guard), requireAuth, requireAssistant, asyncHandler
-        |   `-- security.js         # strictCors, securityHeaders (strict CSP, HTTPS-only HSTS), enforceHttps, rate limits, isObjectId
+        |   |-- auth.js             # JWT signing, requireAuth, requireAssistant, requireAdmin, asyncHandler
+        |   `-- security.js         # strictCors, securityHeaders (strict CSP, HSTS), rate limits, isObjectId
         |-- models/
-        |   |-- User.js             # Assistant & linked client profiles (tokenVersion + lockout fields)
+        |   |-- User.js             # User profiles, super-admin (iambrook2007), employee verifier fields, theme
+        |   |-- ClientRule.js       # Auto-routing rules (sender, domain, subject keywords -> target category)
+        |   |-- CustomCategory.js   # User-defined categories (name, slug, color, icon)
         |   |-- RevokedToken.js     # TTL-indexed JWT denylist (`jti`) for immediate server-side logout
-        |   |-- EmailAccount.js     # Connected Gmail/Outlook/custom API mailboxes
-        |   |-- Conversation.js     # Threads, embedded messages, AI insights, drafts, undo window
+        |   |-- EmailAccount.js     # Connected Gmail/Outlook/custom API mailboxes + credentials
+        |   |-- Conversation.js     # Threads, embedded messages, customCategory, isEncrypted flag
         |   `-- Notification.js     # Assistant alerts triggered by triage & client actions
         |-- routes/
         |   |-- authRoutes.js       # /api/auth/*
         |   |-- accountRoutes.js    # /api/accounts/*
-        |   |-- conversationRoutes.js # /api/conversations/* (including DELETE / & client-actions)
+        |   |-- conversationRoutes.js # /api/conversations/* (with client-queue categories & E2E decryption)
+        |   |-- ruleRoutes.js       # /api/rules/* (CRUD for rules & custom categories)
+        |   |-- adminRoutes.js      # /api/admin/* (employee verifier, user prefs, super-admin panel)
         |   |-- aiRoutes.js         # /api/ai/query
         |   `-- notificationRoutes.js # /api/notifications/*
         |-- services/
         |   |-- aiService.js        # LLM HTTP transport + heuristic classification/drafting/Q&A
-        |   |-- conversationService.js # Ownership reconciliation, snippets, notifications, segment queries
+        |   |-- encryptionService.js# AES-256-GCM symmetric encryption for email bodies and drafts at rest
+        |   |-- conversationService.js # Triage engine with applyClientRules() integration
         |   `-- securityLogger.js   # Redacted JSON security logger, request IDs & threshold alerting
         `-- seed/
             |-- seed.js             # ensureDemoData() (empty inbox by default) & seedAccountInbox()
@@ -153,6 +161,63 @@ Every incoming or re-analyzed thread is classified into one of three owners:
 - Clicking **Account menu -> Clear all messages** in the Assistant header calls `DELETE /api/conversations`, removing all conversations and notifications for the workspace while preserving connected mailboxes (`syncedCount: 0`).
 - Connecting a *brand-new* mailbox inside **Connect inbox** (`POST /api/accounts/connect`) still imports sample threads for exploring multi-mailbox sync. To launch locally with pre-seeded demo threads on both default accounts, set `SEED_DEMO_MESSAGES=true`.
 
+### E. Client Categorized Views & Removal of Restrictions (`/client`)
+1. **Unrestricted Exploration:** Removed the legacy block so clients are never locked out of other active inbox threads. Clients can navigate across all open threads and review categorized groupings.
+2. **Dedicated Category Tabs:**
+   - **Immediate Action Required (`action_required`):** Urgent contracts, term sheets, compensation approvals, and items with impending deadlines.
+   - **Important (`important`):** High-priority executive updates, key stakeholder messages, and starred items.
+   - **Waiting for Response (`waiting_response`):** Outbound threads awaiting a reply from third parties.
+   - **AI to Reply (`ai_reply`):** Low-touch logistics and scheduling where the assistant or AI has composed an automated draft ready for one-tap dispatch.
+   - **User Custom Categories:** Any custom categories created by the client or assistant appear dynamically in the tab strip with active counters.
+3. **Card Quick Actions:**
+   - **Reassign Category:** Change the category of a conversation directly on the card with instant persistence (`POST /api/conversations/:id/client-action` with `{ action: 'assign_category', customCategory: '...' }`).
+   - **Create Quick Rule:** Turn any sender or subject into an automated routing rule with one click (`+ Rule`).
+
+### F. Auto-Routing Rules & Custom Categories Engine
+1. **Custom Category Model (`CustomCategory.js`):**
+   - Enables defining arbitrary executive categories (e.g., *VIP Investors*, *Board Updates*, *Legal & Compliance*, *Press & Media*).
+   - Each category carries `name`, unique URL-safe `slug`, hex `color` token, and `icon`.
+2. **Client Rule Engine (`ClientRule.js`):**
+   - Rules match incoming emails by:
+     - `from_email`: Exact sender email (e.g. `partner@sequoia.com`).
+     - `domain`: Sender domain (e.g. `@stripe.com`).
+     - `subject_contains`: Keywords in email subject (e.g. `urgent`, `Q4 audit`).
+   - Automatic Action: Directs match to `targetCategory` (e.g. `important`, `action_required`, or a custom category slug) and sets responsibility (`client_to_reply`, `assistant_to_reply`, `no_reply_needed`).
+3. **AI Triage Integration (`applyClientRules()` in `conversationService.js`):**
+   - Runs before and after AI classification. If a rule matches, its `targetCategory` and `responsibility` override the AI default with high confidence (`0.95`).
+   - Works seamlessly in both live IMAP ingestion and email simulation (`SimulateModal.jsx`).
+
+### G. Dedicated Settings & Customization Page (`/settings`)
+Accessible to both assistants and clients at `/settings` with dedicated tabs:
+1. **Remove Connected Mailbox IDs:** View all connected inboxes with their sync status and disconnect/delete any identity permanently.
+2. **End-to-End Encryption (E2E) at Rest:**
+   - Toggle switch enabling AES-256-GCM encryption (`encryptionService.js`).
+   - When enabled, message bodies, snippets, and drafts are encrypted with a 256-bit key before writing to MongoDB.
+   - Automatically decrypted on read for authorized client and assistant sessions.
+3. **Dark & Light Mode Toggle:** Global theme switch persisted in `localStorage` and user preferences (`theme.jsx`), styling surfaces with crisp Tailwind `.dark` tokens.
+4. **Rule Manager Modal:** View active rules, toggle active/inactive status, delete rules, or create new routing rules and custom categories.
+
+### H. Assistant Company Credential Verifier
+1. **Corporate Verification Form:**
+   - Available in `/settings` under the **Verification** tab.
+   - Requests **Company Name**, **Employee ID (`empId`)**, and **Company Work Email (`companyEmail`)**.
+2. **Cold Email Authorization Flow:**
+   - Submitting the form calls `POST /api/admin/request-verification`.
+   - Generates a crypto-random `verificationToken` and simulates dropping a cold verification email to the company's HR/IT department (`companyEmail`).
+   - The verification email includes an authorization link: `GET /api/admin/confirm-employee/:token`.
+   - The assistant's account status transitions to `pending`, displaying a pending verification banner in the Assistant dashboard until verified.
+3. **Confirmation & Badges:**
+   - Clicking the authorization link or approving via Super Admin verifies the assistant (`verificationStatus = 'verified'`), granting an enterprise verification badge.
+
+### I. Super Admin Privileges for `iambrook2007@gmail.com`
+1. **Automatic Super-Admin Elevation:**
+   - Any user logging in with `iambrook2007@gmail.com` is automatically granted `isAdmin: true` via pre-save hook in `User.js` and protected by `requireAdmin` middleware.
+2. **Super Admin Dashboard (`/settings` -> Admin tab):**
+   - **System Overview:** Total users, total active conversations, connected mailboxes, and pending verifications.
+   - **Assistant Credential Approvals:** One-click review, approve, or reject employee verification requests.
+   - **Workspace Mailbox Management:** Ability to disconnect/delete any mailbox account system-wide for security governance.
+   - **Audit Logs:** Real-time visibility into authentication events and security alerts.
+
 ---
 
 ## 4. AI Engine Internals (`server/src/services/aiService.js`)
@@ -174,16 +239,22 @@ When running in `heuristic` mode:
 
 ## 5. Data Models (`server/src/models/`)
 
-- **`User` (`User.js`):** `name`, `email` (unique, lowercase), `passwordHash`, `role` (`assistant` | `client`), `assistantId` (links a client to their assistant's workspace), `title`, `onboardingCompleted`, `isDemo`, `voiceTone`.
+- **`User` (`User.js`):**
+  - Core: `name`, `email` (unique, lowercase), `passwordHash`, `role` (`assistant` | `client`), `assistantId` (links client to assistant's workspace), `title`, `onboardingCompleted`, `isDemo`, `voiceTone`.
+  - Super Admin: `isAdmin` (boolean, auto-assigned `true` for `iambrook2007@gmail.com`).
+  - Assistant Company Verification: `companyName`, `employeeId`, `companyEmail`, `verificationStatus` (`unverified` | `pending` | `verified` | `rejected`), `verificationToken`, `verificationSentAt`, `verifiedAt`.
+  - Preferences: `themePreference` (`light` | `dark`), `e2eEncryptionEnabled` (boolean, default `true`).
+- **`ClientRule` (`ClientRule.js`):** `ownerId`, `matchType` (`from_email` | `domain` | `subject_contains`), `matchValue`, `targetCategory` (slug of target category or system category), `action` (`assign_category` | `set_responsibility`), `responsibility` (`client_to_reply` | `assistant_to_reply` | `no_reply_needed`), `isActive`, `priority`.
+- **`CustomCategory` (`CustomCategory.js`):** `ownerId`, `name`, `slug` (unique per owner), `color` (hex token), `description`, `icon`.
 - **`EmailAccount` (`EmailAccount.js`):** `ownerId`, `clientName`, `clientEmail`, `provider` (`gmail` | `outlook` | `custom_api`), `connectionType` (`oauth_simulated` | `api_key_bridge`), `status`, `lastSyncedAt`, `syncedCount`, `color`.
-- **`Conversation` (`Conversation.js`):** `ownerId`, `accountId`, `clientName`, `provider`, `subject`, `participants[]`, `snippet`, embedded `messages[]` (`senderName`, `senderEmail`, `direction`, `body`, `sentAt`), triage fields (`responsibility`, `aiConfidence`, `needsReview`, `manualOverride`, `classificationReason`, `clientActionWhy`, `responsibilityHistory[]`), insights (`oneLineTakeaway`, `aiSummary`, `highlights[]`, `extractedDates[]`, `quickActionChips[]`, `segments[]`), workflow state (`status`: `open` | `waiting_response` | `completed` | `archived`, `isUnread`, `isImportant`, `stagedForClient`, `paContextNote`, `snoozedUntil`, `undoableSendUntil`, `draftReply`, `delegatedByClientNote`, `lastMessageAt`).
+- **`Conversation` (`Conversation.js`):** `ownerId`, `accountId`, `clientName`, `provider`, `subject`, `participants[]`, `snippet`, embedded `messages[]` (`senderName`, `senderEmail`, `direction`, `body`, `sentAt`), `customCategory` (slug linking to a `CustomCategory`), `isEncrypted` (boolean flag denoting AES-256-GCM encrypted message bodies at rest), triage fields (`responsibility`, `aiConfidence`, `needsReview`, `manualOverride`, `classificationReason`, `clientActionWhy`, `responsibilityHistory[]`), insights (`oneLineTakeaway`, `aiSummary`, `highlights[]`, `extractedDates[]`, `quickActionChips[]`, `segments[]`), workflow state (`status`: `open` | `waiting_response` | `completed` | `archived`, `isUnread`, `isImportant`, `stagedForClient`, `paContextNote`, `snoozedUntil`, `undoableSendUntil`, `draftReply`, `delegatedByClientNote`, `lastMessageAt`).
 - **`Notification` (`Notification.js`):** `ownerId`, `conversationId`, `type` (`client_delegated` | `client_handled` | `client_sent` | `needs_review` | `new_client_item` | `info`), `title`, `body`, `read`.
 
 ---
 
 ## 6. REST API Reference
 
-All `/api/*` endpoints except `/api/health`, `/api/auth/register`, `/api/auth/login`, and `/api/auth/demo` require `Authorization: Bearer <token>`.
+All `/api/*` endpoints except `/api/health`, `/api/auth/register`, `/api/auth/login`, `/api/auth/demo`, and `/api/admin/confirm-employee/:token` require `Authorization: Bearer <token>`.
 
 ### System & Auth
 | Method & Path | Access | Description |
@@ -194,7 +265,7 @@ All `/api/*` endpoints except `/api/health`, `/api/auth/register`, `/api/auth/lo
 | `POST /api/auth/logout` | Auth | Revokes active session token (`jti` denylist; `allSessions=true` bumps `tokenVersion`) |
 | `POST /api/auth/change-password` | Auth | Verifies current password, updates hash, bumps `tokenVersion`, returns fresh token |
 | `POST /api/auth/demo` | Public | 1-click demo session (`{ role: 'assistant' | 'client' }`) |
-| `GET /api/auth/me` | Auth | Returns current user profile |
+| `GET /api/auth/me` | Auth | Returns current user profile (including `isAdmin`, `verificationStatus`, preferences) |
 | `PATCH /api/auth/onboarding` | Auth | Marks `onboardingCompleted = true` |
 
 ### Mailboxes & Notifications
@@ -203,29 +274,75 @@ All `/api/*` endpoints except `/api/health`, `/api/auth/register`, `/api/auth/lo
 | `GET /api/accounts` | Assistant | Lists connected mailboxes with live `totalCount` & `unreadCount` |
 | `POST /api/accounts/connect` | Assistant | Connects simulated Gmail/Outlook/API mailbox & imports sample threads |
 | `POST /api/accounts/:id/sync` | Assistant | Updates `lastSyncedAt` and refreshes counts |
-| `DELETE /api/accounts/:id` | Assistant | Removes mailbox and its conversations |
+| `DELETE /api/accounts/:id` | Assistant / Client | Removes mailbox and its conversations from the workspace |
 | `GET /api/notifications` | Assistant | Latest 25 notifications + `unread` count |
 | `PATCH /api/notifications/read-all` | Assistant | Marks all unread notifications read |
 
 ### Conversations, Client Actions & AI
 | Method & Path | Access | Description |
 |---|---|---|
-| `GET /api/conversations` | Assistant | Filters by `segment`, `accountId`, `search`, `needsReview`; returns `{ items, stats, upcoming }` |
+| `GET /api/conversations` | Assistant | Filters by `segment`, `accountId`, `search`, `needsReview`; returns `{ items, stats, upcoming }` with automatic message decryption |
 | `DELETE /api/conversations` | Assistant | Clears all conversations & notifications for workspace; resets `syncedCount: 0` |
-| `GET /api/conversations/client-queue` | Auth | Returns `{ clientName, items, snoozedCount, handledCount, audioBriefText }` |
-| `GET /api/conversations/:id` | Auth | Full thread detail with embedded messages (`403` if client accesses non-client or archived thread) |
-| `PATCH /api/conversations/:id` | Assistant | Override `responsibility`, `status`, `isImportant`, `isUnread`, `stagedForClient`, `paContextNote`, `draftBody` |
+| `GET /api/conversations/client-queue` | Auth | Supports `?category=` filter (`all`, `action_required`, `important`, `waiting_response`, `ai_reply`, or custom category slug); returns `{ clientName, items, total, actionRequiredCount, importantCount, waitingResponseCount, aiReplyCount, audioBriefText }` |
+| `GET /api/conversations/:id` | Auth | Full thread detail with decrypted embedded messages |
+| `PATCH /api/conversations/:id` | Assistant | Override `responsibility`, `status`, `isImportant`, `isUnread`, `stagedForClient`, `customCategory`, `paContextNote`, `draftBody` |
 | `POST /api/conversations/:id/reply` | Assistant | Sends explicit assistant reply, transitions thread to `waiting_response` |
-| `POST /api/conversations/simulate` | Assistant | Injects a new thread or follow-up message, runs AI classification + notifications |
-| `POST /api/conversations/:id/reanalyze` | Assistant | Re-runs AI analysis on the full thread |
+| `POST /api/conversations/simulate` | Assistant | Injects a new thread or follow-up message, runs client rule matching + AI classification |
+| `POST /api/conversations/:id/reanalyze` | Assistant | Re-runs AI analysis and client rules on the full thread |
 | `POST /api/conversations/:id/draft` | Assistant | Generates AI draft in `{ tone, instruction, asClient }` |
-| `POST /api/conversations/:id/client-action` | Auth | Executes `approve_and_send`, `quick_chip`, `quick_intent`, `snooze`, `mark_handled`, `delegate_to_assistant` |
+| `POST /api/conversations/:id/client-action` | Auth | Executes `approve_and_send`, `quick_chip`, `quick_intent`, `snooze`, `mark_handled`, `delegate_to_assistant`, or `assign_category` (`{ customCategory }`) |
 | `POST /api/conversations/:id/undo-send` | Auth | Reverts client reply back to staged draft within the 5-second window |
 | `POST /api/ai/query` | Assistant | Natural-language inbox Q&A (`{ question, conversationId? }`) |
 
+### Auto-Routing Rules & Custom Categories (`/api/rules`)
+| Method & Path | Access | Description |
+|---|---|---|
+| `GET /api/rules` | Auth | List all client/assistant auto-routing rules for the active workspace |
+| `POST /api/rules` | Auth | Create a new routing rule (`{ matchType, matchValue, targetCategory, action, responsibility }`) |
+| `PATCH /api/rules/:id` | Auth | Update rule active status or configuration |
+| `DELETE /api/rules/:id` | Auth | Delete a routing rule |
+| `GET /api/rules/categories` | Auth | List all custom categories for the workspace |
+| `POST /api/rules/categories` | Auth | Create a custom category (`{ name, color, description, icon }`) |
+| `DELETE /api/rules/categories/:id` | Auth | Delete a custom category |
+
+### Admin & Verification (`/api/admin`)
+| Method & Path | Access | Description |
+|---|---|---|
+| `GET /api/admin/confirm-employee/:token` | Public | HR confirmation callback from cold verification email; marks assistant `verified` |
+| `POST /api/admin/request-verification` | Auth (Assistant) | Submits `{ companyName, employeeId, companyEmail }` and dispatches cold email |
+| `GET /api/admin/preferences` | Auth | Returns user preferences (`{ themePreference, e2eEncryptionEnabled, verificationStatus }`) |
+| `PATCH /api/admin/preferences` | Auth | Updates user preferences (`{ themePreference, e2eEncryptionEnabled }`) |
+| `GET /api/admin/system-overview` | Super Admin (`iambrook2007@gmail.com`) | Returns global system stats, all registered users, mailboxes, and pending verifications |
+| `POST /api/admin/verify-user/:userId` | Super Admin | Approves or rejects assistant employee verification (`{ status: 'verified' | 'rejected' }`) |
+| `DELETE /api/admin/accounts/:id` | Super Admin | Permanently unlinks/deletes any mailbox across any user workspace |
+
 ---
 
-## 7. Usage Guide (Local & Live)
+## 7. File Locations & Where Changes Live
+
+The table below maps every feature request directly to the exact file paths modified or created:
+
+| Feature / Area | Exact File Path(s) | Role & Description |
+|---|---|---|
+| **Client Categorized Inbox** | [`client/src/pages/Client.jsx`](file:///F:/Ai%20powered%20email%20dashboard/client/src/pages/Client.jsx) | Tabbed navigation for `Immediate Action Required`, `Important`, `Waiting for Response`, `AI to Reply`, and custom categories; card reassign & quick-rule triggers. |
+| **Client Queue API & Stats** | [`server/src/routes/conversationRoutes.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/routes/conversationRoutes.js) | Category filter query, breakdown stats counters, and `assign_category` handler. |
+| **Routing Rules Model** | [`server/src/models/ClientRule.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/models/ClientRule.js) | Schema for email/domain/subject rule matchers and target categories. |
+| **Custom Category Model** | [`server/src/models/CustomCategory.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/models/CustomCategory.js) | Schema for user-defined categories (name, slug, color, icon). |
+| **Rule & Category API** | [`server/src/routes/ruleRoutes.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/routes/ruleRoutes.js) | CRUD endpoints mounted at `/api/rules`. |
+| **Triage Rules Engine** | [`server/src/services/conversationService.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/services/conversationService.js) | `applyClientRules()` function matching incoming threads against rules before AI triage. |
+| **Rule Manager UI** | [`client/src/components/RuleManagerModal.jsx`](file:///F:/Ai%20powered%20email%20dashboard/client/src/components/RuleManagerModal.jsx) | Modal to manage auto-routing rules and custom categories. |
+| **Settings & Customization Page** | [`client/src/pages/Settings.jsx`](file:///F:/Ai%20powered%20email%20dashboard/client/src/pages/Settings.jsx) | Unified settings view: Remove Mailbox ID, E2E toggle, Assistant Verifier form, Rules, and Super Admin dashboard. |
+| **Theme / Dark & Light Mode** | [`client/src/theme.jsx`](file:///F:/Ai%20powered%20email%20dashboard/client/src/theme.jsx)<br>[`client/src/index.css`](file:///F:/Ai%20powered%20email%20dashboard/client/src/index.css) | `ThemeProvider`, `ThemeToggle` component, and Tailwind `.dark` CSS tokens. |
+| **End-to-End Encryption (E2E)** | [`server/src/services/encryptionService.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/services/encryptionService.js) | AES-256-GCM symmetric encryption for message bodies and drafts at rest. |
+| **Assistant Verifier Flow** | [`server/src/routes/adminRoutes.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/routes/adminRoutes.js)<br>[`server/src/models/User.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/models/User.js) | Cold verification email dispatch, crypto token generation, and confirmation callback. |
+| **Super Admin Elevation** | [`server/src/models/User.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/models/User.js)<br>[`server/src/middleware/auth.js`](file:///F:/Ai%20powered%20email%20dashboard/server/src/middleware/auth.js) | Automatic super-admin privileges for `iambrook2007@gmail.com` and `requireAdmin` guard. |
+| **Assistant Workspace View** | [`client/src/pages/Assistant.jsx`](file:///F:/Ai%20powered%20email%20dashboard/client/src/pages/Assistant.jsx) | Added ThemeToggle, Settings shortcut, employer verification banner, and custom categories in sidebar. |
+| **Router & Route Guards** | [`client/src/App.jsx`](file:///F:/Ai%20powered%20email%20dashboard/client/src/App.jsx) | Wrapped with `ThemeProvider`, added `/settings` route guarded for clients and assistants. |
+| **Automated Tests** | [`server/tests/api.test.js`](file:///F:/Ai%20powered%20email%20dashboard/server/tests/api.test.js) | 28 automated tests covering rules, categories, verification tokens, admin, and encryption. |
+
+---
+
+## 8. Usage Guide (Local & Live)
 
 ### Running Locally on `F:` (Zero-Config)
 All dependencies, npm cache, and MongoDB binaries are isolated inside `F:\Ai powered email dashboard` (`.cache/`).
