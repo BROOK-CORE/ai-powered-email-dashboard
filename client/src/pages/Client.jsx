@@ -1,9 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeftRight, Check, ChevronDown, Clock, HandHelping, LogOut, Mic, PartyPopper, Send, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  Check,
+  ChevronDown,
+  Clock,
+  Filter,
+  HandHelping,
+  LogOut,
+  Mic,
+  PartyPopper,
+  Plus,
+  Send,
+  Settings as SettingsIcon,
+  Sparkles,
+  Tag,
+  Volume2,
+  VolumeX,
+  Zap,
+} from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import { ThemeToggle } from '../theme.jsx';
 import { Avatar, Button, ErrorState, Logo, Modal, ProviderMark, Spinner, cx, fmtDateTime, timeAgo, useToast } from '../components/ui.jsx';
+import RuleManagerModal from '../components/RuleManagerModal.jsx';
 
 const SR = typeof window !== 'undefined' ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
 
@@ -29,7 +49,7 @@ function ThreadModal({ id, onClose }) {
       open={Boolean(id)}
       onClose={onClose}
       title={conv?.subject || 'Original conversation'}
-      subtitle={conv ? `${conv.messages.length} message${conv.messages.length > 1 ? 's' : ''}` : ''}
+      subtitle={conv ? `${conv.messages?.length || 0} message${conv.messages?.length > 1 ? 's' : ''}` : ''}
       wide
     >
       {error ? (
@@ -40,7 +60,7 @@ function ThreadModal({ id, onClose }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {conv.messages.map((m) => (
+          {conv.messages?.map((m) => (
             <article
               key={m._id}
               className={cx(
@@ -60,7 +80,7 @@ function ThreadModal({ id, onClose }) {
   );
 }
 
-function DecisionCard({ c, busy, onAction, onOpen }) {
+function DecisionCard({ c, busy, onAction, onOpen, onQuickRule }) {
   const [text, setText] = useState('');
   const [showDraft, setShowDraft] = useState(true);
   const [delegating, setDelegating] = useState(false);
@@ -68,10 +88,13 @@ function DecisionCard({ c, busy, onAction, onOpen }) {
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
   const hasDraft = Boolean(c.draftReply?.body);
-  const sender = (c.participants || []).find((p) => !/\(for /.test(p.name || ''))?.name || 'Sender';
+  const senderObj = (c.participants || []).find((p) => !/\(for /.test(p.name || '')) || {};
+  const sender = senderObj.name || 'Sender';
+  const senderEmail = senderObj.email || '';
 
   const mic = () => {
     if (listening) return recRef.current?.stop();
+    if (!SR) return;
     const r = new SR();
     r.lang = 'en-US';
     r.interimResults = true;
@@ -91,11 +114,11 @@ function DecisionCard({ c, busy, onAction, onOpen }) {
 
   return (
     <article
-      className="card-lift animate-fade-up overflow-hidden rounded-2xl border border-[#EBEBEB] bg-white"
+      className="card-lift animate-fade-up overflow-hidden rounded-2xl border border-[#EBEBEB] bg-white transition-colors"
       aria-label={c.subject}
     >
       <div className="p-6">
-        {/* 1. Sender header matching generated reference image 3 */}
+        {/* 1. Header with Category and Quick Rule Button */}
         <header className="flex items-start gap-3">
           <div className="relative">
             <Avatar name={sender} tone="amber" size="lg" />
@@ -105,27 +128,54 @@ function DecisionCard({ c, busy, onAction, onOpen }) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="body-4 text-[#171717]">{sender}</span>
-              {c.isImportant && (
-                <span className="caption-3 rounded-full border border-[#FDE68A] bg-[#FEF3C7] px-2.5 py-0.5 text-[#B45309]">
-                  Urgent Decision
+              <span className="body-4 font-semibold text-[#171717]">{sender}</span>
+              {senderEmail && <span className="caption-4 text-[#73706D]">&lt;{senderEmail}&gt;</span>}
+
+              {/* Category Badges */}
+              {c.customCategory && (
+                <span className="caption-3 rounded-full border border-[#BFDBFE] bg-[#EBF5FF] px-2 py-0.5 text-[#0070F3]">
+                  {c.customCategory}
                 </span>
               )}
+              {c.isImportant && !c.customCategory && (
+                <span className="caption-3 rounded-full border border-[#FDE68A] bg-[#FEF3C7] px-2.5 py-0.5 text-[#B45309]">
+                  ⭐ Important
+                </span>
+              )}
+              {c.segments?.includes('action_required') && !c.customCategory && (
+                <span className="caption-3 rounded-full border border-[#FECACA] bg-[#FEF2F2] px-2 py-0.5 text-[#DC2626]">
+                  ⚡ Immediate Action Required
+                </span>
+              )}
+
               <span className="caption-4 font-mono ml-auto text-[#73706D]">{timeAgo(c.lastMessageAt)}</span>
             </div>
-            <h2 className="body-5 mt-0.5 text-[#4D4D4D]">{c.subject}</h2>
+
+            <h2 className="body-5 mt-1 font-medium text-[#171717]">{c.subject}</h2>
           </div>
         </header>
 
         {/* 2. Takeaway + Amber Why Callout */}
-        <h3 className="heading-5 mt-5 text-[#171717]">{c.oneLineTakeaway}</h3>
+        <h3 className="heading-6 mt-4 text-[#171717]">{c.oneLineTakeaway || c.snippet}</h3>
         <div className="mt-3 rounded-lg border border-[#FDE68A] bg-[#FEF3C7]/60 px-4 py-3 body-6 text-[#92400E]">
           <b>Why this needs you: </b>
-          {c.clientActionWhy || 'Your assistant flagged this thread for your personal decision.'}
+          {c.clientActionWhy || c.classificationReason || 'Flagged for your executive review and decision.'}
         </div>
-        <button type="button" onClick={() => onOpen(c.id)} className="button-sm mt-3 text-[#0070F3] hover:underline">
-          Read full conversation
-        </button>
+
+        <div className="mt-3 flex items-center justify-between text-xs">
+          <button type="button" onClick={() => onOpen(c.id)} className="button-sm text-[#0070F3] hover:underline">
+            Read full conversation &rarr;
+          </button>
+          {senderEmail && (
+            <button
+              type="button"
+              onClick={() => onQuickRule(senderEmail, c.subject)}
+              className="inline-flex items-center gap-1 rounded-md border border-[#EBEBEB] bg-[#FAFAFA] px-2 py-1 text-[11px] font-medium text-[#73706D] hover:border-[#D4D4D8] hover:text-[#171717]"
+            >
+              <Zap className="h-3 w-3 text-[#0070F3]" /> Always route this sender
+            </button>
+          )}
+        </div>
 
         {/* 3. Reply & Action Zone */}
         <div className="mt-5 space-y-4">
@@ -190,13 +240,13 @@ function DecisionCard({ c, busy, onAction, onOpen }) {
                 e.preventDefault();
                 draftIntent();
               }}
-              className="flex items-center gap-2"
+              className="flex gap-2"
             >
               <div className="relative flex-1">
                 <input
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder={listening ? 'Listening...' : 'Tap mic or type a short instruction...'}
+                  placeholder="Or reply in a few words / voice dictation..."
                   aria-label="Reply in a few words"
                   className="body-5 h-11 w-full rounded-full border border-[#D4D4D8] bg-white pl-5 pr-12 text-[#171717] outline-none focus:border-[#0070F3] focus:ring-2 focus:ring-[#0070F3]/20"
                 />
@@ -257,6 +307,20 @@ function DecisionCard({ c, busy, onAction, onOpen }) {
             <Button variant="secondary" size="sm" icon={Check} loading={busy === `${c.id}:mark_handled`} onClick={() => onAction(c.id, { action: 'mark_handled' })}>
               Mark as handled
             </Button>
+
+            {/* Quick Category Assignment */}
+            <select
+              value={c.customCategory || ''}
+              onChange={(e) => onAction(c.id, { action: 'assign_category', category: e.target.value })}
+              className="body-6 h-8 rounded-lg border border-[#D4D4D8] bg-white px-2 text-[#73706D] outline-none"
+            >
+              <option value="">Category: Default</option>
+              <option value="Important">⭐ Important</option>
+              <option value="Action Required">⚡ Action Required</option>
+              <option value="Waiting for Response">⏳ Waiting for Response</option>
+              <option value="AI to Reply">🤖 AI to Reply</option>
+            </select>
+
             <Button variant="ghost" size="sm" icon={Clock} className="ml-auto" loading={busy === `${c.id}:snooze`} onClick={() => onAction(c.id, { action: 'snooze' })}>
               Later
             </Button>
@@ -272,20 +336,30 @@ export default function Client() {
   const nav = useNavigate();
   const toast = useToast();
   const [data, setData] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [activeCategory, setActiveCategory] = useState('all'); // 'all' | 'action_required' | 'important' | 'waiting_response' | 'ai_reply' | slug
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [openId, setOpenId] = useState(null);
   const [speaking, setSpeaking] = useState(false);
-  const isAssistant = user.role === 'assistant';
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
+  const [rulePrefill, setRulePrefill] = useState({ value: '', type: 'from_email' });
+
+  const isAssistant = user?.role === 'assistant';
 
   const load = useCallback(async () => {
     try {
-      setData(await api.get('/conversations/client-queue'));
+      const [queueData, catData] = await Promise.all([
+        api.get(`/conversations/client-queue?category=${activeCategory}`),
+        api.get('/rules/categories').catch(() => ({ categories: [] })),
+      ]);
+      setData(queueData);
+      setCategories(catData.categories || []);
       setError('');
     } catch (e) {
       setError(e.message);
     }
-  }, []);
+  }, [activeCategory]);
 
   useEffect(() => {
     load();
@@ -299,8 +373,8 @@ export default function Client() {
     async (id) => {
       try {
         await api.post(`/conversations/${id}/undo-send`);
-        toast.push('Send undone. Your draft is restored.', { type: 'info' });
-        load();
+        toast.push('Send undone');
+        await load();
       } catch (e) {
         toast.push(e.message, { type: 'error' });
       }
@@ -308,49 +382,76 @@ export default function Client() {
     [load, toast]
   );
 
-  const act = async (id, body, key) => {
-    setBusy(`${id}:${key || body.action}`);
-    try {
-      const res = await api.post(`/conversations/${id}/client-action`, body);
-      if (res.undoUntil && ['approve_and_send', 'quick_chip'].includes(body.action)) {
-        toast.push(res.message, { duration: 5000, action: { label: 'Undo', onClick: () => undo(id) } });
-      } else toast.push(res.message);
-      await load();
-    } catch (e) {
-      toast.push(e.message, { type: 'error' });
-    } finally {
-      setBusy('');
-    }
-  };
+  const act = useCallback(
+    async (id, body, key = '') => {
+      setBusy(`${id}:${key || body.action}`);
+      try {
+        const res = await api.post(`/conversations/${id}/client-action`, body);
+        if (body.action === 'approve_and_send' || body.action === 'quick_chip') {
+          toast.push(res.message, {
+            action: { label: 'Undo', onClick: () => undo(id) },
+          });
+        } else {
+          toast.push(res.message);
+        }
+        await load();
+      } catch (e) {
+        toast.push(e.message, { type: 'error' });
+      } finally {
+        setBusy('');
+      }
+    },
+    [load, toast, undo]
+  );
 
   const listen = () => {
-    const synth = window.speechSynthesis;
-    if (!synth) return toast.push('Audio brief is not supported in this browser', { type: 'info' });
+    if (!window.speechSynthesis) return;
     if (speaking) {
-      synth.cancel();
-      return setSpeaking(false);
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
     }
-    const u = new SpeechSynthesisUtterance(data.audioBriefText);
-    u.rate = 1.02;
+    const txt = data?.audioBriefText || 'You are all caught up. No immediate emails require your personal decision.';
+    const u = new SpeechSynthesisUtterance(txt);
+    u.rate = 1.05;
     u.onend = () => setSpeaking(false);
     u.onerror = () => setSpeaking(false);
     setSpeaking(true);
-    return synth.speak(u);
+    window.speechSynthesis.speak(u);
+  };
+
+  const handleQuickRule = (email, subject) => {
+    setRulePrefill({ value: email, type: 'from_email' });
+    setRuleModalOpen(true);
   };
 
   const items = data?.items || [];
-  const name = (data?.clientName || user.name).split(' ')[0];
-  const subtitle = useMemo(() => {
-    if (!items.length) return 'Nothing needs your attention.';
-    return `${items.length} item${items.length > 1 ? 's' : ''} need${items.length > 1 ? '' : 's'} your personal response.`;
-  }, [items.length]);
+  const stats = data?.stats || {};
+  const name = (data?.clientName || user?.name || 'Executive').split(' ')[0];
+
+  const categoryTabs = [
+    { id: 'all', label: 'All Active', count: stats.total || items.length },
+    { id: 'action_required', label: '⚡ Immediate Action', count: stats.actionRequiredCount || 0 },
+    { id: 'important', label: '⭐ Important', count: stats.importantCount || 0 },
+    { id: 'waiting_response', label: '⏳ Waiting for Response', count: stats.waitingResponseCount || 0 },
+    { id: 'ai_reply', label: '🤖 AI to Reply', count: stats.aiReplyCount || 0 },
+    ...categories.map((c) => ({ id: c.slug, label: c.name, count: null, color: c.color })),
+  ];
 
   return (
-    <div className="min-h-dvh bg-[#FAF9F6]">
+    <div className="min-h-dvh bg-[#FAF9F6] text-[#171717] transition-colors">
       <header className="sticky top-0 z-20 border-b border-[#EBEBEB] bg-white/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
           <Logo />
           <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button variant="secondary" size="sm" icon={Filter} onClick={() => setRuleModalOpen(true)}>
+              <span className="hidden sm:inline">Rules & Categories</span>
+              <span className="sm:hidden">Rules</span>
+            </Button>
+            <Button variant="secondary" size="sm" icon={SettingsIcon} onClick={() => nav('/settings')}>
+              Settings
+            </Button>
             {isAssistant && (
               <Button variant="secondary" size="sm" icon={ArrowLeftRight} onClick={() => nav('/assistant')}>
                 <span className="hidden sm:inline">Assistant view</span>
@@ -366,7 +467,7 @@ export default function Client() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 pb-24 pt-10">
+      <main className="mx-auto max-w-4xl px-4 pb-24 pt-8">
         {!data && !error && (
           <div className="space-y-4" aria-busy="true">
             <div className="skeleton h-9 w-2/3" />
@@ -378,19 +479,23 @@ export default function Client() {
 
         {data && (
           <>
-            {/* Executive Header Row matching generated reference image 3 */}
-            <section className="mb-8 flex flex-wrap items-start justify-between gap-4 animate-fade-up">
+            {/* Executive Greeting Row */}
+            <section className="mb-6 flex flex-wrap items-start justify-between gap-4 animate-fade-up">
               <div>
                 <h1 className="heading-3 sm:heading-2 text-[#171717]">
                   {greeting()}, {name}
                 </h1>
-                <p className="body-2 mt-2 text-[#4D4D4D]">{subtitle}</p>
+                <p className="body-2 mt-1.5 text-[#4D4D4D]">
+                  {items.length === 0
+                    ? 'No conversations in this category.'
+                    : `${items.length} conversation${items.length > 1 ? 's' : ''} in this view.`}
+                </p>
               </div>
               {items.length > 0 && (
                 <button
                   type="button"
                   onClick={listen}
-                  className="button-sm motion-transition inline-flex items-center gap-2 rounded-full bg-[#171717] px-4 py-2.5 text-white hover:bg-black active:scale-[0.98]"
+                  className="button-sm motion-transition inline-flex items-center gap-2 rounded-full bg-[#171717] px-4 py-2 text-white hover:bg-black active:scale-[0.98]"
                 >
                   {speaking ? <VolumeX className="h-4 w-4 text-[#F87171]" /> : <Volume2 className="h-4 w-4 text-[#10B981]" />}
                   {speaking ? 'Stop audio brief' : 'Listen to 30s audio brief'}
@@ -398,36 +503,79 @@ export default function Client() {
               )}
             </section>
 
+            {/* Category Selector Tabs */}
+            <nav className="mb-6 flex gap-1.5 overflow-x-auto pb-2 text-xs font-semibold scrollbar-none">
+              {categoryTabs.map((t) => {
+                const active = activeCategory === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveCategory(t.id)}
+                    className={cx(
+                      'flex items-center gap-1.5 whitespace-nowrap rounded-xl border px-3 py-2 transition',
+                      active
+                        ? 'border-[#0070F3] bg-[#0070F3] text-white shadow-sm'
+                        : 'border-[#EBEBEB] bg-white text-[#73706D] hover:border-[#D4D4D8] hover:text-[#171717]'
+                    )}
+                  >
+                    <span>{t.label}</span>
+                    {t.count !== null && (
+                      <span
+                        className={cx(
+                          'rounded-full px-1.5 py-0.2 text-[10px] font-bold',
+                          active ? 'bg-white/20 text-white' : 'bg-[#FAFAFA] text-[#73706D]'
+                        )}
+                      >
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
             {items.length === 0 ? (
               <div className="animate-fade-up rounded-2xl border border-[#EBEBEB] bg-white p-12 text-center">
                 <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669]">
                   <PartyPopper className="h-6 w-6" />
                 </div>
-                <h2 className="heading-5 text-[#171717]">You are all caught up</h2>
+                <h2 className="heading-5 text-[#171717]">No conversations in this view</h2>
                 <p className="body-6 mx-auto mt-1.5 max-w-sm text-[#73706D]">
-                  Your assistant is handling the rest of your inbox. We will only interrupt when a decision requires you personally.
+                  All items for this category have been addressed or your assistant is handling them autonomously.
                 </p>
+                <Button variant="secondary" size="sm" className="mt-4" onClick={() => setActiveCategory('all')}>
+                  View all active threads
+                </Button>
               </div>
             ) : (
               <div className="space-y-6">
                 {items.map((c) => (
-                  <DecisionCard key={c.id} c={c} busy={busy} onAction={act} onOpen={setOpenId} />
+                  <DecisionCard
+                    key={c.id}
+                    c={c}
+                    busy={busy}
+                    onAction={act}
+                    onOpen={setOpenId}
+                    onQuickRule={handleQuickRule}
+                  />
                 ))}
               </div>
-            )}
-
-            {(data.handledCount > 0 || data.snoozedCount > 0) && (
-              <p className="caption-2 mt-8 text-center font-mono text-[#73706D]">
-                {data.handledCount > 0 && `${data.handledCount} handled`}
-                {data.handledCount > 0 && data.snoozedCount > 0 && ' · '}
-                {data.snoozedCount > 0 && `${data.snoozedCount} snoozed until tomorrow morning`}
-              </p>
             )}
           </>
         )}
       </main>
 
       <ThreadModal id={openId} onClose={() => setOpenId(null)} />
+
+      {/* Rule & Category Manager Modal */}
+      <RuleManagerModal
+        open={ruleModalOpen}
+        onClose={() => setRuleModalOpen(false)}
+        initialMatchValue={rulePrefill.value}
+        initialMatchType={rulePrefill.type}
+        onRulesChanged={load}
+      />
     </div>
   );
 }

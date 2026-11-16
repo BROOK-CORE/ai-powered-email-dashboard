@@ -7,6 +7,7 @@ import { createRateLimiter, isObjectId, isValidEmail } from '../middleware/secur
 import { analyzeConversation, refreshSnippet, notify, findOwned, segmentQuery } from '../services/conversationService.js';
 import { draftReply, expandQuickIntentToReply, audioBrief } from '../services/aiService.js';
 import { logSecurityEvent } from '../services/securityLogger.js';
+import { decryptConversationMessages, encryptConversationMessages } from '../services/encryptionService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -21,8 +22,8 @@ function escapeRegex(s) {
 }
 
 function view(c) {
-  const o = c.toObject ? c.toObject() : c;
-  return { ...o, id: o._id };
+  const decrypted = decryptConversationMessages(c);
+  return { ...decrypted, id: decrypted._id };
 }
 
 function listView(c) {
@@ -77,27 +78,65 @@ async function upcomingEvents(ownerId) {
 
 /* ------------------------------- Client portal ------------------------------------------ */
 
-async function clientQueue(ownerId) {
+async function clientQueue(ownerId, category = 'all') {
   const now = new Date();
-  const items = await Conversation.find({
-    ownerId,
-    responsibility: 'client_to_reply',
-    status: 'open',
-    $or: [{ snoozedUntil: null }, { snoozedUntil: { $lte: now } }],
-  }).sort({ isImportant: -1, stagedForClient: -1, lastMessageAt: -1 });
-  const snoozed = await Conversation.countDocuments({ ownerId, responsibility: 'client_to_reply', status: 'open', snoozedUntil: { $gt: now } });
-  const handled = await Conversation.countDocuments({ ownerId, responsibility: 'client_to_reply', status: { $in: ['completed', 'waiting_response'] } });
-  return { items, snoozed, handled };
+  const base = { ownerId, status: { $in: ['open', 'waiting_response'] } };
+
+  // Category counts across the board for the client
+  const [total, actionRequiredCount, importantCount, waitingResponseCount, aiReplyCount, snoozed, handled] = await Promise.all([
+    Conversation.countDocuments(base),
+    Conversation.countDocuments({ ownerId, status: 'open', segments: 'action_required' }),
+    Conversation.countDocuments({ ownerId, status: ACTIVE, $or: [{ isImportant: true }, { segments: 'important' }, { customCategory: 'Important' }] }),
+    Conversation.countDocuments({ ownerId, status: 'waiting_response' }),
+    Conversation.countDocuments({ ownerId, status: ACTIVE, responsibility: 'assistant_to_reply' }),
+    Conversation.countDocuments({ ownerId, status: 'open', snoozedUntil: { $gt: now } }),
+    Conversation.countDocuments({ ownerId, status: { $in: ['completed', 'waiting_response'] } }),
+  ]);
+
+  const q = { ownerId, status: ACTIVE, $or: [{ snonozedUntil: null }, { snoozedUntil: null }, { snoozedUntil: { $lte: now } }] };
+  if (category === 'action_required') {
+    q.segments = 'action_required';
+    q.status = 'open';
+  } else if (category === 'important') {
+    q.$and = [{ $or: [{ isImportant: true }, { segments: 'important' }, { customCategory: 'Important' }] }];
+  } else if (category === 'waiting_response') {
+    q.status = 'waiting_response';
+  } else if (category === 'ai_reply') {
+    q.responsibility = 'assistant_to_reply';
+  } else if (category && category !== 'all') {
+    q.$and = [{ $or: [{ customCategory: category }, { segments: category }] }];
+  }
+
+  const items = await Conversation.find(q).sort({ isImportant: -1, lastMessageAt: -1 }).limit(100);
+  return {
+    items,
+    stats: {
+      total,
+      actionRequiredCount,
+      importantCount,
+      waitingResponseCount,
+      aiReplyCount,
+      snoozed,
+      handled,
+    },
+    snoozed,
+    handled,
+  };
 }
 
 router.get(
   '/client-queue',
   asyncHandler(async (req, res) => {
-    const { items, snoozed, handled } = await clientQueue(req.ownerId);
-    const name = req.user.role === 'client' ? req.user.name : (await import('../models/User.js').then((m) => m.User.findOne({ assistantId: req.ownerId, role: 'client' })))?.name;
+    const { category } = req.query;
+    const { items, stats, snoozed, handled } = await clientQueue(req.ownerId, category);
+    const name =
+      req.user.role === 'client'
+        ? req.user.name
+        : (await import('../models/User.js').then((m) => m.User.findOne({ assistantId: req.ownerId, role: 'client' })))?.name;
     res.json({
       clientName: name || null,
       items: items.map(view),
+      stats,
       snoozedCount: snoozed,
       handledCount: handled,
       audioBriefText: audioBrief(items, name),
@@ -161,7 +200,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-    if (req.user.role === 'client' && (conv.responsibility !== 'client_to_reply' || conv.status === 'archived')) {
+    if (
+      req.user.role === 'client' &&
+      ((conv.responsibility === 'assistant_to_reply' && !conv.customCategory && !conv.stagedForClient) || conv.status === 'archived')
+    ) {
       logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'read_non_client_or_archived', status: 403 } });
       return res.status(403).json({ error: 'Not available in the client view' });
     }
@@ -313,18 +355,47 @@ router.post(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-    if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply') {
+    if (
+      req.user.role === 'client' &&
+      ((conv.responsibility === 'assistant_to_reply' && !conv.customCategory && !conv.stagedForClient) || conv.status === 'archived')
+    ) {
       logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'action_non_client_thread', action: typeof req.body?.action === 'string' ? req.body.action : null, status: 403 } });
       return res.status(403).json({ error: 'Not available in the client view' });
     }
-    if (conv.status !== 'open') {
+    if (conv.status !== 'open' && req.body?.action !== 'assign_category') {
       return res.status(409).json({ error: 'This conversation is no longer open' });
     }
-    const { action, note, chipIndex, text } = req.body || {};
+    const { action, note, chipIndex, text, category } = req.body || {};
     const clientFirst = conv.clientName.split(' ')[0];
     let message = '';
 
     switch (action) {
+      case 'assign_category': {
+        const cat = typeof category === 'string' ? category.trim() : '';
+        conv.customCategory = cat;
+        if (cat === 'Important' || cat === 'important') {
+          conv.isImportant = true;
+          if (!conv.segments.includes('important')) conv.segments.push('important');
+        } else if (cat === 'Action Required' || cat === 'action_required') {
+          if (!conv.segments.includes('action_required')) conv.segments.push('action_required');
+          conv.status = 'open';
+        } else if (cat === 'Waiting for Response' || cat === 'waiting_response') {
+          conv.status = 'waiting_response';
+          if (!conv.segments.includes('waiting_response')) conv.segments.push('waiting_response');
+        } else if (cat === 'AI to Reply' || cat === 'ai_reply') {
+          conv.responsibility = 'assistant_to_reply';
+        } else if (cat) {
+          if (!conv.segments.includes(cat)) conv.segments.push(cat);
+        }
+        conv.responsibilityHistory.push({
+          from: null,
+          to: conv.responsibility,
+          reason: `Category assigned: ${cat || 'default'}`,
+          source: req.user.role === 'client' ? 'client' : 'assistant',
+        });
+        message = `Categorized as ${cat}`;
+        break;
+      }
       case 'approve_and_send': {
         const override = typeof text === 'string' ? text.trim() : '';
         const body = (override || conv.draftReply?.body || '').trim().slice(0, 15000);
@@ -393,8 +464,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const conv = await findOwned(req.ownerId, req.params.id);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
-    if (req.user.role === 'client' && conv.responsibility !== 'client_to_reply') {
-      logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'undo_non_client_thread', status: 403 } });
+    if (req.user.role === 'client' && conv.status === 'archived') {
+      logSecurityEvent({ event: 'authz.client_scope_denied', severity: 'warn', outcome: 'denied', req, targetId: conv._id, meta: { reason: 'undo_archived_thread', status: 403 } });
       return res.status(403).json({ error: 'Not available in the client view' });
     }
     if (!conv.undoableSendUntil || conv.undoableSendUntil < new Date()) return res.status(409).json({ error: 'The undo window has passed' });

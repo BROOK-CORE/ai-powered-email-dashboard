@@ -18,6 +18,7 @@ import {
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Star,
   Trash2,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import { ThemeToggle } from '../theme.jsx';
 import ConnectWizard from '../components/ConnectWizard.jsx';
 import CopilotDrawer from '../components/CopilotDrawer.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
@@ -78,7 +80,20 @@ const KPIS = [
 
 const SEGMENT_LABEL = Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i.id, i.label])));
 
-function Sidebar({ user, segment, setSegment, stats, accounts, accountId, setAccountId, onConnect, onNavigate, onSettings, onClientView }) {
+function Sidebar({
+  user,
+  segment,
+  setSegment,
+  stats,
+  accounts,
+  accountId,
+  setAccountId,
+  onConnect,
+  onNavigate,
+  onSettings,
+  onClientView,
+  customCategories = [],
+}) {
   return (
     <nav className="flex h-full flex-col overflow-y-auto bg-[#FAFAFA]" aria-label="Inbox segments">
       {/* Connected Mailboxes at top of sidebar (matching reference image 2) */}
@@ -179,6 +194,36 @@ function Sidebar({ user, segment, setSegment, stats, accounts, accountId, setAcc
             </ul>
           </div>
         ))}
+        {customCategories.length > 0 && (
+          <div>
+            <p className="caption-3 mb-1.5 px-2 uppercase tracking-wider text-[#73706D]">Client Categories</p>
+            <ul className="space-y-0.5">
+              {customCategories.map((cat) => {
+                const active = segment === cat.slug && !accountId;
+                return (
+                  <li key={cat.slug}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSegment(cat.slug);
+                        onNavigate?.();
+                      }}
+                      className={cx(
+                        'motion-transition flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left title-4',
+                        active
+                          ? 'border-[#BFDBFE] bg-[#EBF5FF] text-[#0070F3]'
+                          : 'border-transparent text-[#4D4D4D] hover:bg-white hover:text-[#171717]'
+                      )}
+                    >
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: cat.color || '#0070F3' }} />
+                      <span className="flex-1 truncate">{cat.name}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Bottom Assistant Profile Card (matching reference image 2) */}
@@ -298,6 +343,7 @@ export default function Assistant() {
   const [debounced, setDebounced] = useState('');
   const [data, setData] = useState({ items: [], stats: null, upcoming: [] });
   const [accounts, setAccounts] = useState([]);
+  const [customCategories, setCustomCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
@@ -321,9 +367,14 @@ export default function Assistant() {
         const qs = new URLSearchParams({ segment });
         if (accountId) qs.set('accountId', accountId);
         if (debounced.trim()) qs.set('search', debounced.trim());
-        const [d, a] = await Promise.all([api.get(`/conversations?${qs}`), api.get('/accounts')]);
+        const [d, a, cats] = await Promise.all([
+          api.get(`/conversations?${qs}`),
+          api.get('/accounts'),
+          api.get('/rules/categories').catch(() => ({ categories: [] })),
+        ]);
         setData(d);
         setAccounts(a.accounts);
+        setCustomCategories(cats?.categories || []);
         setError('');
       } catch (e) {
         if (!silent) setError(e.message);
@@ -369,7 +420,9 @@ export default function Assistant() {
     () => data.items.find((i) => i.id === selectedId) || (selectedId ? { id: selectedId, subject: '' } : null),
     [data.items, selectedId]
   );
-  const title = accountId ? accounts.find((a) => a.id === accountId)?.clientEmail : SEGMENT_LABEL[segment];
+  const title = accountId
+    ? accounts.find((a) => a.id === accountId)?.clientEmail
+    : SEGMENT_LABEL[segment] || customCategories.find((c) => c.slug === segment)?.name || segment;
 
   const pickSegment = (s) => {
     setSegment(s);
@@ -435,6 +488,15 @@ export default function Assistant() {
             <span className="hidden sm:inline">Ask AI</span>
           </Button>
           <NotificationBell refreshKey={bellKey} onOpenThread={openThread} />
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={() => nav('/settings')}
+            title="Settings & Admin"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#EBEBEB] bg-white text-[#73706D] hover:bg-[#FAFAFA] hover:text-[#171717]"
+          >
+            <Settings2 className="h-4 w-4" />
+          </button>
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -453,6 +515,13 @@ export default function Assistant() {
                   <p className="caption-4 text-[#73706D]">{user.title}</p>
                 </div>
                 <div className="p-2 body-5">
+                  <button
+                    type="button"
+                    onClick={() => nav('/settings')}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#171717] hover:bg-[#F4F4F5]"
+                  >
+                    <Settings2 className="h-4 w-4" /> Settings & Customization
+                  </button>
                   <button
                     type="button"
                     onClick={() => nav('/client')}
@@ -507,8 +576,9 @@ export default function Assistant() {
             accountId={accountId}
             setAccountId={setAccountId}
             onConnect={() => setConnect(true)}
-            onSettings={() => nav('/accounts')}
+            onSettings={() => nav('/settings')}
             onClientView={() => nav('/client')}
+            customCategories={customCategories}
           />
         </aside>
 
@@ -541,9 +611,10 @@ export default function Assistant() {
                     setNavOpen(false);
                     setConnect(true);
                   }}
-                  onSettings={() => nav('/accounts')}
+                  onSettings={() => nav('/settings')}
                   onClientView={() => nav('/client')}
                   onNavigate={() => setNavOpen(false)}
+                  customCategories={customCategories}
                 />
               </div>
             </aside>
@@ -551,6 +622,39 @@ export default function Assistant() {
         )}
 
         <main className="flex min-w-0 flex-1 flex-col">
+          {/* Verification Status Banner for Assistant */}
+          {user?.verificationStatus === 'pending' && (
+            <div className="flex items-center justify-between gap-3 border-b border-[#FEF08A] bg-[#FEFCE8] px-4 py-2 text-xs text-[#854D0E]">
+              <div className="flex items-center gap-2 truncate">
+                <Clock className="h-4 w-4 shrink-0 text-[#CA8A04]" />
+                <span>
+                  Company verification pending for <b>{user.companyEmail || user.companyName}</b> (Emp ID: <b>{user.employeeId || 'N/A'}</b>).
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => nav('/settings')}
+                className="font-medium underline hover:text-[#713F12]"
+              >
+                Verification details &rarr;
+              </button>
+            </div>
+          )}
+          {user?.verificationStatus === 'unverified' && (
+            <div className="flex items-center justify-between gap-3 border-b border-[#E0E7FF] bg-[#EEF2FF] px-4 py-2 text-xs text-[#3730A3]">
+              <div className="flex items-center gap-2 truncate">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-[#4F46E5]" />
+                <span>Verify your assistant company credentials to unlock enterprise authentication & badges.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => nav('/settings')}
+                className="font-medium underline hover:text-[#312E81]"
+              >
+                Verify now &rarr;
+              </button>
+            </div>
+          )}
           {/* 7-Card Geist Mono KPI Strip (matching reference image 2) */}
           <section aria-label="Inbox overview" className="shrink-0 border-b border-[#EBEBEB] bg-white">
             <div className="flex snap-x gap-2.5 overflow-x-auto px-4 py-3 lg:grid lg:grid-cols-7">

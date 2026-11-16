@@ -540,4 +540,67 @@ describe('security hardening', () => {
     const emptyTest = await api.post('/api/accounts/test-imap').set(auth(assistant)).send({});
     expect(emptyTest.status).toBe(400);
   });
+
+  it('supports client rules, custom categories, assistant verification, and Brook admin privileges', async () => {
+    // 1. Create a client rule: route emails from "vip@fund.vc" to "important"
+    const ruleRes = await api.post('/api/rules').set(auth(client)).send({
+      name: 'VIP Investors',
+      matchType: 'from_email',
+      matchValue: 'vip@fund.vc',
+      targetCategory: 'important',
+    });
+    expect(ruleRes.status).toBe(201);
+    expect(ruleRes.body.rule.name).toBe('VIP Investors');
+
+    // 2. Simulate email from vip@fund.vc -> verify AI triage applies rule
+    const simRes = await api.post('/api/conversations/simulate').set(auth(assistant)).send({
+      fromName: 'VIP Partner',
+      fromEmail: 'vip@fund.vc',
+      subject: 'Term Sheet Discussion',
+      body: 'Here is our updated term sheet for review.',
+    });
+    expect(simRes.status).toBe(201);
+    expect(simRes.body.conversation.isImportant).toBe(true);
+    expect(simRes.body.conversation.classificationReason).toContain('VIP Investors');
+
+    // 3. Create custom category
+    const catRes = await api.post('/api/rules/categories').set(auth(client)).send({
+      name: 'Board Updates',
+      color: '#10B981',
+      description: 'Quarterly board materials',
+    });
+    expect(catRes.status).toBe(201);
+    expect(catRes.body.category.slug).toBe('board_updates');
+
+    // 4. Assistant company verification flow
+    const verRes = await api.post('/api/admin/request-verification').set(auth(assistant)).send({
+      companyName: 'Lumen Labs Inc',
+      employeeId: 'LUMEN-902',
+      companyEmail: 'hr@lumenlabs.io',
+    });
+    expect(verRes.status).toBe(200);
+    expect(verRes.body.user.verificationStatus).toBe('pending');
+    expect(verRes.body.simulatedVerificationUrl).toBeTruthy();
+
+    const token = verRes.body.simulatedVerificationUrl.split('/').pop();
+    const confirmRes = await api.get(`/api/admin/confirm-employee/${token}`);
+    expect(confirmRes.status).toBe(200);
+    expect(confirmRes.text).toContain('Employee Verification Confirmed');
+
+    // 5. Brook super-admin privileges
+    const brookRes = await api.post('/api/auth/register').send({
+      name: 'Brook',
+      email: 'iambrook2007@gmail.com',
+      password: 'BrookSecureAdminPass2026!',
+    });
+    // If already registered or just created:
+    const brookToken = brookRes.status === 201
+      ? brookRes.body.token
+      : (await api.post('/api/auth/login').send({ email: 'iambrook2007@gmail.com', password: 'BrookSecureAdminPass2026!' })).body.token;
+
+    expect(brookToken).toBeTruthy();
+    const overviewRes = await api.get('/api/admin/system-overview').set({ Authorization: `Bearer ${brookToken}` });
+    expect(overviewRes.status).toBe(200);
+    expect(overviewRes.body.stats.totalUsers).toBeGreaterThan(0);
+  });
 });

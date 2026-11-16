@@ -65,6 +65,8 @@ const conversationSchema = new mongoose.Schema(
       },
     ],
     segments: [{ type: String }],
+    customCategory: { type: String, default: '', index: true },
+    isEncrypted: { type: Boolean, default: false },
 
     status: {
       type: String,

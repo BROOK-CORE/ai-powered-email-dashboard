@@ -361,3 +361,58 @@ dd,
     transform: none;
   }
 }
+
+/* Dark Mode Theme Tokens & Inversions */
+html.dark {
+  --color-canvas: #09090b;
+  --color-canvas-warm: #121215;
+  --color-ink: #f4f4f5;
+  --color-ink-secondary: #a1a1aa;
+  --color-ink-muted: #71717a;
+  --color-hairline: #27272a;
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+html.dark .bg-white {
+  background-color: #121215 !important;
+}
+
+html.dark .bg-\[\#FAFAFA\],
+html.dark .bg-\[\#FAF9F6\] {
+  background-color: #18181b !important;
+}
+
+html.dark .border-\[\#EBEBEB\],
+html.dark .border-\[\#D4D4D8\],
+html.dark .border-\[\#E4E4E7\] {
+  border-color: #27272a !important;
+}
+
+html.dark .text-\[\#171717\] {
+  color: #f4f4f5 !important;
+}
+
+html.dark .text-\[\#4D4D4D\] {
+  color: #d4d4d8 !important;
+}
+
+html.dark .text-\[\#73706D\] {
+  color: #a1a1aa !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+  border-color: #3f3f46 !important;
+}
+
+html.dark .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important;
+}

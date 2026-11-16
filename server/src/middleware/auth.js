@@ -98,6 +98,21 @@ export function requireAssistant(req, res, next) {
   next();
 }
 
+export function requireAdmin(req, res, next) {
+  const isAdmin = req.user?.email === 'iambrook2007@gmail.com' || Boolean(req.user?.isAdmin);
+  if (!isAdmin) {
+    logSecurityEvent({
+      event: 'authz.admin_denied',
+      severity: 'warn',
+      outcome: 'denied',
+      req,
+      meta: { reason: 'admin_only_endpoint', status: 403 },
+    });
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
 export function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }

@@ -7,6 +7,8 @@ import accountRoutes from './routes/accountRoutes.js';
 import conversationRoutes from './routes/conversationRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import ruleRoutes from './routes/ruleRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { activeProvider } from './services/aiService.js';
 import { strictCors, securityHeaders, enforceHttps, createRateLimiter, parseProxyHops } from './middleware/security.js';
 import { attachRequestId, logSecurityEvent } from './services/securityLogger.js';
@@ -35,6 +37,8 @@ export function createApp() {
   app.use('/api/conversations', conversationRoutes);
   app.use('/api/ai', aiRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/rules', ruleRoutes);
+  app.use('/api/admin', adminRoutes);
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 

@@ -1,11 +1,13 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { Button, Logo, Spinner, ToastProvider } from './components/ui.jsx';
+import { ThemeProvider } from './theme.jsx';
 import Accounts from './pages/Accounts.jsx';
 import Assistant from './pages/Assistant.jsx';
 import Client from './pages/Client.jsx';
 import Login from './pages/Login.jsx';
 import Onboarding from './pages/Onboarding.jsx';
+import Settings from './pages/Settings.jsx';
 
 function Home() {
   const { user } = useAuth();
@@ -58,47 +60,57 @@ function NotFound() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ToastProvider>
-        <AuthProvider>
-          <Routes>
-            <Route path="/" element={<AuthGate />} />
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/onboarding"
-              element={
-                <Guard roles={['assistant']}>
-                  <Onboarding />
-                </Guard>
-              }
-            />
-            <Route
-              path="/assistant"
-              element={
-                <Guard roles={['assistant']}>
-                  <Assistant />
-                </Guard>
-              }
-            />
-            <Route
-              path="/accounts"
-              element={
-                <Guard roles={['assistant']}>
-                  <Accounts />
-                </Guard>
-              }
-            />
-            <Route
-              path="/client"
-              element={
-                <Guard roles={['assistant', 'client']}>
-                  <Client />
-                </Guard>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AuthProvider>
-      </ToastProvider>
+      <ThemeProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/" element={<AuthGate />} />
+              <Route path="/login" element={<Login />} />
+              <Route
+                path="/onboarding"
+                element={
+                  <Guard roles={['assistant']}>
+                    <Onboarding />
+                  </Guard>
+                }
+              />
+              <Route
+                path="/assistant"
+                element={
+                  <Guard roles={['assistant']}>
+                    <Assistant />
+                  </Guard>
+                }
+              />
+              <Route
+                path="/accounts"
+                element={
+                  <Guard roles={['assistant']}>
+                    <Accounts />
+                  </Guard>
+                }
+              />
+              <Route
+                path="/client"
+                element={
+                  <Guard roles={['assistant', 'client']}>
+                    <Client />
+                  </Guard>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <Guard roles={['assistant', 'client']}>
+                    <Settings />
+                  </Guard>
+                }
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
