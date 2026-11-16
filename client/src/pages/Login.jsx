@@ -453,9 +453,21 @@ export default function Login() {
                     placeholder="At least 8 characters"
                   />
                   {error && (
-                    <p role="alert" className="body-5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-[#DC2626]">
-                      {error}
-                    </p>
+                    <div role="alert" className="body-5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-[#DC2626]">
+                      <p>{error}</p>
+                      {mode === 'login' && error.toLowerCase().includes('invalid') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMode('register');
+                            setError('');
+                          }}
+                          className="mt-1.5 block text-left text-xs font-semibold text-[#0070F3] hover:underline"
+                        >
+                          New to Inboxly? Click here to register your workspace &rarr;
+                        </button>
+                      )}
+                    </div>
                   )}
                   <Button type="submit" variant="cobalt" size="md" loading={busy === 'form'} className="w-full">
                     {mode === 'login' ? 'Sign in with email' : 'Create workspace'} <ArrowRight className="h-4 w-4" />

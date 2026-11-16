@@ -673,10 +673,10 @@ export default function Assistant() {
       <Modal open={connect} onClose={() => setConnect(false)} title="Add a mailbox">
         <ConnectWizard
           onCancel={() => setConnect(false)}
-          onDone={() => {
+          onDone={(acc) => {
             setConnect(false);
-            load();
-            toast.push('Mailbox connected and synced');
+            if (acc?.id) setAccountId(acc.id);
+            toast.push('Mailbox connected and opened');
           }}
         />
       </Modal>
