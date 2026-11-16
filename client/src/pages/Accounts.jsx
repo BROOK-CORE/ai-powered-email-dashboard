@@ -6,10 +6,10 @@ import ConnectWizard from '../components/ConnectWizard.jsx';
 import { Button, EmptyState, ErrorState, Logo, Modal, ProviderMark, cx, timeAgo, useToast } from '../components/ui.jsx';
 
 const STATUS = {
-  connected: { label: 'Connected', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200', dot: 'bg-emerald-500' },
-  syncing: { label: 'Syncing…', cls: 'bg-amber-50 text-amber-700 ring-amber-200', dot: 'animate-pulse bg-amber-500' },
-  attention_needed: { label: 'Needs attention', cls: 'bg-rose-50 text-rose-700 ring-rose-200', dot: 'bg-rose-500' },
-  disconnected: { label: 'Disconnected', cls: 'bg-slate-100 text-slate-600 ring-slate-200', dot: 'bg-slate-400' },
+  connected: { label: 'Connected', cls: 'border-[#A7F3D0] bg-[#ECFDF5] text-[#059669]', dot: 'bg-[#059669]' },
+  syncing: { label: 'Syncing...', cls: 'border-[#FDE68A] bg-[#FEF3C7] text-[#B45309]', dot: 'animate-pulse bg-[#D97706]' },
+  attention_needed: { label: 'Needs attention', cls: 'border-[#FECACA] bg-[#FEF2F2] text-[#DC2626]', dot: 'bg-[#DC2626]' },
+  disconnected: { label: 'Disconnected', cls: 'border-[#E4E4E7] bg-[#F4F4F5] text-[#52525B]', dot: 'bg-[#71717A]' },
 };
 
 export default function Accounts() {
@@ -63,10 +63,17 @@ export default function Accounts() {
   };
 
   return (
-    <div className="min-h-dvh bg-canvas">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-dvh bg-[#FAFAFA]">
+      <header className="border-b border-[#EBEBEB] bg-white">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-          <button onClick={() => nav('/assistant')} aria-label="Back to inbox" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><ArrowLeft className="h-5 w-5" /></button>
+          <button
+            type="button"
+            onClick={() => nav('/assistant')}
+            aria-label="Back to inbox"
+            className="motion-transition rounded-lg p-2 text-[#4D4D4D] hover:bg-[#F4F4F5]"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
           <Logo />
         </div>
       </header>
@@ -74,68 +81,117 @@ export default function Accounts() {
       <main className="mx-auto max-w-3xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-extrabold text-slate-900">Connected mailboxes</h1>
-            <p className="mt-1 text-sm text-slate-500">Connection health and sync status for every client inbox.</p>
+            <h1 className="heading-5 text-[#171717]">Connected mailboxes</h1>
+            <p className="body-6 mt-1 text-[#73706D]">Connection health and sync status for every client inbox.</p>
           </div>
-          <Button variant="primary" icon={Plus} onClick={() => setConnect(true)}>Connect inbox</Button>
+          <Button variant="primary" icon={Plus} onClick={() => setConnect(true)}>
+            Connect inbox
+          </Button>
         </div>
 
         {error && !accounts && <ErrorState message={error} onRetry={load} />}
         {!accounts && !error && (
-          <div className="space-y-3">{[1, 2].map((i) => <div key={i} className="skeleton h-24 !rounded-2xl" />)}</div>
+          <div className="space-y-3">
+            {[1, 2].map((i) => (
+              <div key={i} className="skeleton h-28 !rounded-2xl" />
+            ))}
+          </div>
         )}
         {accounts?.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white">
-            <EmptyState icon={Plug} title="No mailboxes connected" text="Connect a Gmail or Outlook inbox to start triaging with AI." action={<Button variant="primary" icon={Plus} onClick={() => setConnect(true)}>Connect inbox</Button>} />
+          <div className="rounded-2xl border border-[#EBEBEB] bg-white">
+            <EmptyState
+              icon={Plug}
+              title="No mailboxes connected"
+              text="Connect a Google Workspace or Microsoft Outlook inbox to start triaging with AI."
+              action={
+                <Button variant="primary" icon={Plus} onClick={() => setConnect(true)}>
+                  Connect inbox
+                </Button>
+              }
+            />
           </div>
         )}
 
-        <ul className="space-y-3">
+        <ul className="space-y-4">
           {accounts?.map((a) => {
             const s = STATUS[a.status] || STATUS.connected;
             return (
-              <li key={a.id} className="animate-fade-up rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <li key={a.id} className="card-lift animate-fade-up rounded-2xl border border-[#EBEBEB] bg-white p-5">
                 <div className="flex flex-wrap items-center gap-4">
                   <ProviderMark provider={a.provider} size="lg" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-slate-900">{a.clientEmail}</p>
-                    <p className="text-xs text-slate-500">{a.clientName} · {a.provider === 'custom_api' ? 'API key' : a.provider === 'gmail' ? 'Gmail' : 'Outlook'}</p>
+                    <p className="body-4 truncate text-[#171717]">{a.clientEmail}</p>
+                    <p className="caption-2 text-[#73706D]">
+                      {a.clientName} · {a.provider === 'custom_api' ? 'API Bridge' : a.provider === 'gmail' ? 'Google Gmail' : 'Microsoft Outlook'}
+                    </p>
                   </div>
-                  <span className={cx('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset', s.cls)}>
+                  <span className={cx('caption-3 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1', s.cls)}>
                     <span className={cx('h-1.5 w-1.5 rounded-full', s.dot)} /> {s.label}
                   </span>
                 </div>
-                <dl className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-4 text-center">
-                  {[['Conversations', a.totalCount], ['Unread', a.unreadCount], ['Last sync', timeAgo(a.lastSyncedAt)]].map(([k, v]) => (
+                <dl className="mt-4 grid grid-cols-3 gap-3 rounded-lg border border-[#EBEBEB] bg-[#FAFAFA] p-3 text-center">
+                  {[
+                    ['Conversations', a.totalCount],
+                    ['Unread', a.unreadCount],
+                    ['Last sync', timeAgo(a.lastSyncedAt)],
+                  ].map(([k, v]) => (
                     <div key={k}>
-                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{k}</dt>
-                      <dd className="mt-0.5 font-display text-lg font-extrabold text-slate-900">{v}</dd>
+                      <dt className="caption-4 uppercase tracking-wider text-[#73706D]">{k}</dt>
+                      <dd className="title-2 font-mono mt-0.5 text-[#171717]">{v}</dd>
                     </div>
                   ))}
                 </dl>
                 <div className="mt-4 flex gap-2">
-                  <Button size="sm" icon={RefreshCw} loading={busy === a.id} onClick={() => sync(a)}>Sync now</Button>
-                  <Button size="sm" variant="ghost" icon={Trash2} className="text-rose-600 hover:bg-rose-50" onClick={() => setConfirm(a)}>Disconnect</Button>
+                  <Button size="sm" icon={RefreshCw} loading={busy === a.id} onClick={() => sync(a)}>
+                    Sync now
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={Trash2}
+                    className="text-[#DC2626] hover:bg-[#FEF2F2]"
+                    onClick={() => setConfirm(a)}
+                  >
+                    Disconnect
+                  </Button>
                 </div>
               </li>
             );
           })}
         </ul>
         {accounts?.length > 0 && (
-          <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-slate-400"><CheckCircle2 className="h-3.5 w-3.5" /> Prototype: connections and sync are simulated with sample data.</p>
+          <p className="caption-4 mt-6 flex items-center justify-center gap-1.5 text-[#73706D]">
+            <CheckCircle2 className="h-3.5 w-3.5 text-[#059669]" /> Sandbox environment: connections and sync run with realistic sample threads.
+          </p>
         )}
       </main>
 
       <Modal open={connect} onClose={() => setConnect(false)} title="Add a mailbox">
-        <ConnectWizard onCancel={() => setConnect(false)} onDone={() => { setConnect(false); load(); toast.push('Mailbox connected and synced'); }} />
+        <ConnectWizard
+          onCancel={() => setConnect(false)}
+          onDone={() => {
+            setConnect(false);
+            load();
+            toast.push('Mailbox connected and synced');
+          }}
+        />
       </Modal>
       <Modal
         open={Boolean(confirm)}
         onClose={() => setConfirm(null)}
         title="Disconnect this mailbox?"
-        footer={<div className="flex justify-end gap-2"><Button onClick={() => setConfirm(null)}>Cancel</Button><Button variant="danger" loading={busy === confirm?.id} onClick={remove}>Disconnect</Button></div>}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant="danger" loading={busy === confirm?.id} onClick={remove}>
+              Disconnect
+            </Button>
+          </div>
+        }
       >
-        <p className="text-sm text-slate-600">All imported conversations for <b>{confirm?.clientEmail}</b> will be removed from this workspace.</p>
+        <p className="body-6 text-[#4D4D4D]">
+          All imported conversations for <b>{confirm?.clientEmail}</b> will be removed from this workspace.
+        </p>
       </Modal>
     </div>
   );

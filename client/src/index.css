@@ -1,10 +1,21 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --color-canvas: #f8fafc;
-  --color-ink: #0f172a;
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --color-canvas: #fafafa;
+  --color-canvas-warm: #faf9f6;
+  --color-ink: #171717;
+  --color-ink-secondary: #4d4d4d;
+  --color-ink-muted: #73706d;
+  --color-hairline: #ebebeb;
+  --color-teal-band: #0e3030;
+  --color-cobalt: #0070f3;
+}
+
+:root {
+  --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html,
@@ -14,115 +25,327 @@ body,
 }
 
 body {
-  margin: 0;
-  background: var(--color-canvas);
-  color: var(--color-ink);
   font-family: var(--font-sans);
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-style: normal;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Enforce zero italics across the entire interface (landing-page-design B1) */
+*,
+*::before,
+*::after {
+  font-style: normal;
 }
 
 h1,
 h2,
 h3,
-.font-display {
-  font-family: var(--font-display);
-  letter-spacing: -0.015em;
+h4,
+.text-balance {
+  text-wrap: balance;
 }
 
-/* Smooth, subtle motion */
+p,
+li,
+dd,
+.text-pretty {
+  text-wrap: pretty;
+}
+
+/* Named Text Styles (landing-page-design B1 exact scale & weight system) */
+.heading-1 {
+  font-size: 3.75rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+.heading-2 {
+  font-size: 3rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.heading-3 {
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.heading-4 {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.heading-5 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.heading-6 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.title-1 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 500;
+}
+.title-2 {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 500;
+}
+.title-3 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+}
+.title-4 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+.title-5 {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+}
+
+.body-1 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.body-2 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+}
+.body-3 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 400;
+}
+.body-4 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+.body-5 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+.body-6 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+
+.button-lg {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+}
+.button-md {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.button-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+.button-xsm {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+}
+
+.caption-1 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+.caption-2 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+.caption-3 {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+}
+.caption-4 {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+}
+.caption-5 {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+}
+
+/* Hero Heading Text Gradient (landing-page-design B5: #000000 -> #666666, only place gradient is allowed) */
+.hero-heading-gradient {
+  background-image: linear-gradient(90deg, #000000 0%, #666666 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Weighted Motion Layer (landing-page-design B7 & design-taste-frontend Rule 5) */
+.motion-transition {
+  transition-timing-function: var(--ease-out-quart);
+  transition-duration: 300ms;
+  transition-property: transform, opacity, background-color, border-color, color, box-shadow;
+}
+
+.motion-layout {
+  transition-timing-function: var(--ease-out-quart);
+  transition-duration: 500ms;
+  transition-property: transform, opacity;
+}
+
+.card-lift {
+  transition: transform 300ms var(--ease-out-quart), border-color 300ms var(--ease-out-quart), box-shadow 300ms var(--ease-out-quart);
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Subtle custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(23, 23, 23, 0.16);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(23, 23, 23, 0.28);
+}
+
+@keyframes shimmer {
+  0% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.45;
+  }
+}
+
+.skeleton {
+  background-color: #ebebeb;
+  animation: shimmer 1.6s var(--ease-out-quart) infinite;
+  border-radius: 0.5rem;
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
   }
 }
+
 @keyframes slide-in-right {
   from {
-    transform: translateX(24px);
     opacity: 0;
+    transform: translateX(16px);
   }
   to {
-    transform: translateX(0);
     opacity: 1;
+    transform: translateX(0);
   }
 }
+
 @keyframes pop {
   from {
-    transform: scale(0.96);
     opacity: 0;
+    transform: scale(0.97) translateY(6px);
   }
   to {
-    transform: scale(1);
     opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
-@keyframes shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-@keyframes drain {
-  from {
-    width: 100%;
-  }
-  to {
-    width: 0%;
-  }
-}
+
 @keyframes pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
   }
   100% {
-    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+@keyframes drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes diagram-pulse {
+  0% {
+    stroke-dashoffset: 120;
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.35;
   }
 }
 
 .animate-fade-up {
-  animation: fade-up 0.35s ease both;
+  animation: fade-up 500ms var(--ease-out-quart) both;
 }
 .animate-slide-in {
-  animation: slide-in-right 0.25s ease both;
+  animation: slide-in-right 500ms var(--ease-out-quart) both;
 }
 .animate-pop {
-  animation: pop 0.18s ease both;
+  animation: pop 300ms var(--ease-out-quart) both;
 }
 .animate-drain {
-  animation: drain 5s linear forwards;
+  transform-origin: left center;
+  animation: drain 5s var(--ease-out-quart) forwards;
 }
 .animate-pulse-ring {
-  animation: pulse-ring 1.2s infinite;
+  animation: pulse-ring 1.2s var(--ease-out-quart) infinite;
 }
-.skeleton {
-  position: relative;
-  overflow: hidden;
-  background: #e2e8f0;
-  border-radius: 8px;
-}
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
-  animation: shimmer 1.3s infinite;
-}
-
-/* Thin, quiet scrollbars */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
-}
-
-:focus-visible {
-  outline: 2px solid #6366f1;
-  outline-offset: 2px;
-  border-radius: 6px;
+.animate-diagram-pulse {
+  stroke-dasharray: 12 108;
+  animation: diagram-pulse 3s var(--ease-out-quart) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -130,6 +353,11 @@ h3,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card-lift:hover {
+    transform: none;
   }
 }

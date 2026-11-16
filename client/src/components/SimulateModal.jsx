@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Zap } from 'lucide-react';
 import { api } from '../api.js';
-import { Button, Modal, RESP, useToast } from './ui.jsx';
+import { Button, Modal, RESP, cx, useToast } from './ui.jsx';
 
 const PRESETS = [
   {
@@ -18,7 +18,7 @@ const PRESETS = [
     fromName: 'Chris Doyle',
     fromEmail: 'chris@brightlane.com',
     subject: 'Can we find time next week?',
-    body: 'Hi team, could we schedule a 30-minute catch-up next week? I am available Tuesday at 2 PM or Wednesday at 10 AM. Please let me know which works.',
+    body: 'Hi team, could we schedule a 30 minute catch up next week? I am available Tuesday at 2 PM or Wednesday at 10 AM. Please let me know which works.',
   },
   {
     id: 'newsletter',
@@ -42,12 +42,12 @@ const REPLY_PRESET = {
   fromName: '',
   fromEmail: '',
   subject: '',
-  body: 'Quick update — this now needs Arjun’s personal sign-off on the confidential equity amendment before we proceed. It is a legal matter and requires his signature.',
+  body: 'Quick update: this now needs Arjun personal sign off on the confidential equity amendment before we proceed. It is a legal matter and requires his signature.',
 };
 
 export default function SimulateModal({ open, onClose, accounts, selected, onDone }) {
   const toast = useToast();
-  const [mode, setMode] = useState('new'); // new | reply
+  const [mode, setMode] = useState('new');
   const [preset, setPreset] = useState('investor');
   const [f, setF] = useState(PRESETS[0]);
   const [accountId, setAccountId] = useState('');
@@ -78,7 +78,9 @@ export default function SimulateModal({ open, onClose, accounts, selected, onDon
       });
       const c = res.conversation;
       const label = RESP[c.responsibility].label;
-      const msg = res.changedFrom ? `AI re-classified: ${RESP[res.changedFrom].label} → ${label}` : `AI classified as “${label}” (${Math.round(c.aiConfidence * 100)}%)${c.needsReview ? ' · flagged for review' : ''}`;
+      const msg = res.changedFrom
+        ? `AI reclassified from ${RESP[res.changedFrom].label} to ${label}`
+        : `AI classified as ${label} (${Math.round(c.aiConfidence * 100)}%)${c.needsReview ? ' and flagged for review' : ''}`;
       toast.push(msg, { type: 'info', duration: 5500 });
       onDone(c);
       onClose();
@@ -89,52 +91,83 @@ export default function SimulateModal({ open, onClose, accounts, selected, onDon
     }
   };
 
-  const input = 'mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100';
+  const input =
+    'body-5 mt-1.5 h-10 w-full rounded-lg border border-[#D4D4D8] bg-white px-3 text-[#171717] outline-none focus:border-[#0070F3] focus:ring-2 focus:ring-[#0070F3]/20';
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Simulate an incoming email"
-      subtitle="Watch AI classify it live — or re-evaluate an existing thread."
+      subtitle="Watch AI classify ownership live or reevaluate an active thread."
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" icon={Zap} loading={busy} onClick={submit} disabled={f.body.trim().length < 5 || (mode === 'new' && !f.subject.trim())}>
+          <Button
+            variant="primary"
+            icon={Zap}
+            loading={busy}
+            onClick={submit}
+            disabled={f.body.trim().length < 5 || (mode === 'new' && !f.subject.trim())}
+          >
             Deliver email
           </Button>
         </div>
       }
     >
       <div className="space-y-4">
-        <div className="inline-flex rounded-lg bg-slate-100 p-1 text-sm font-semibold">
+        <div className="inline-flex rounded-lg border border-[#EBEBEB] bg-[#FAFAFA] p-1">
           {[
             ['new', 'New email'],
-            ['reply', 'New reply in selected thread'],
+            ['reply', 'Reply in selected thread'],
           ].map(([k, l]) => (
             <button
               key={k}
+              type="button"
               disabled={k === 'reply' && !selected}
-              onClick={() => { setMode(k); setF(k === 'reply' ? { ...REPLY_PRESET } : PRESETS.find((p) => p.id === preset)); }}
-              className={`rounded-md px-3 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-40 ${mode === k ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}
+              onClick={() => {
+                setMode(k);
+                setF(k === 'reply' ? { ...REPLY_PRESET } : PRESETS.find((p) => p.id === preset));
+              }}
+              className={cx(
+                'button-xsm rounded-md px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40',
+                mode === k ? 'bg-[#171717] text-white' : 'text-[#73706D] hover:text-[#171717]'
+              )}
             >
               {l}
             </button>
           ))}
         </div>
-        {mode === 'reply' && selected && <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">Replying into: <b>{selected.subject}</b></p>}
+        {mode === 'reply' && selected && (
+          <p className="body-6 rounded-lg border border-[#BFDBFE] bg-[#EBF5FF] px-3 py-2 text-[#1E40AF]">
+            Replying into: <b>{selected.subject}</b>
+          </p>
+        )}
 
         {mode === 'new' && (
           <>
             <div className="flex flex-wrap gap-2">
               {PRESETS.map((p) => (
-                <button key={p.id} onClick={() => { setPreset(p.id); setF(p); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${preset === p.id ? 'bg-indigo-600 text-white ring-indigo-600' : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50'}`}>
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setPreset(p.id);
+                    setF(p);
+                  }}
+                  className={cx(
+                    'button-xsm motion-transition rounded-full border px-3 py-1.5',
+                    preset === p.id
+                      ? 'border-[#171717] bg-[#171717] text-white'
+                      : 'border-[#D4D4D8] bg-white text-[#4D4D4D] hover:border-[#171717]'
+                  )}
+                >
                   {p.label}
                 </button>
               ))}
             </div>
             {accounts.length > 1 && (
-              <label className="block text-sm font-semibold text-slate-700">
+              <label className="title-4 block text-[#171717]">
                 Deliver to mailbox
                 <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={input}>
                   {accounts.map((a) => (
@@ -146,24 +179,29 @@ export default function SimulateModal({ open, onClose, accounts, selected, onDon
               </label>
             )}
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm font-semibold text-slate-700">
+              <label className="title-4 block text-[#171717]">
                 From name
                 <input value={f.fromName} onChange={set('fromName')} className={input} />
               </label>
-              <label className="block text-sm font-semibold text-slate-700">
+              <label className="title-4 block text-[#171717]">
                 From email
                 <input value={f.fromEmail} onChange={set('fromEmail')} className={input} />
               </label>
             </div>
-            <label className="block text-sm font-semibold text-slate-700">
+            <label className="title-4 block text-[#171717]">
               Subject
               <input value={f.subject} onChange={set('subject')} className={input} />
             </label>
           </>
         )}
-        <label className="block text-sm font-semibold text-slate-700">
+        <label className="title-4 block text-[#171717]">
           Message
-          <textarea value={f.body} onChange={set('body')} rows={5} className="mt-1 w-full resize-y rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" />
+          <textarea
+            value={f.body}
+            onChange={set('body')}
+            rows={5}
+            className="body-6 mt-1.5 w-full resize-y rounded-lg border border-[#D4D4D8] bg-white p-3 text-[#171717] outline-none focus:border-[#0070F3] focus:ring-2 focus:ring-[#0070F3]/20"
+          />
         </label>
       </div>
     </Modal>

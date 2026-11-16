@@ -6,15 +6,27 @@ import ConnectWizard from '../components/ConnectWizard.jsx';
 import { Button, Logo, cx } from '../components/ui.jsx';
 
 const INTRO = [
-  { icon: Inbox, title: 'One calm place for every client inbox', text: 'Connect Gmail and Outlook mailboxes and see their status at a glance.' },
-  { icon: BrainCircuit, title: 'AI decides who needs to reply', text: 'Every thread is sorted: assistant, client, or no reply — with the reason shown.' },
-  { icon: Eye, title: 'Clients only see what needs them', text: 'A minimal view with a 1-line summary, a draft ready to approve, and one-tap actions.' },
+  {
+    icon: Inbox,
+    title: 'One calm workspace for every client inbox',
+    text: 'Connect Google Workspace and Microsoft Outlook mailboxes and monitor sync health in one view.',
+  },
+  {
+    icon: BrainCircuit,
+    title: 'AI decides who needs to reply',
+    text: 'Every conversation is sorted into Assistant to reply, Client to reply, or No reply needed with a clear reason.',
+  },
+  {
+    icon: Eye,
+    title: 'Clients only see what truly needs them',
+    text: 'Leaders open a calm decision queue with a 1 line takeaway, a ready draft, and one tap actions.',
+  },
 ];
 
 export default function Onboarding() {
   const { user, completeOnboarding } = useAuth();
   const nav = useNavigate();
-  const [step, setStep] = useState(0); // 0 intro, 1 connect
+  const [step, setStep] = useState(0);
 
   const finish = async () => {
     await completeOnboarding();
@@ -22,38 +34,47 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col bg-gradient-to-b from-indigo-50/70 to-white">
-      <header className="flex items-center justify-between px-5 py-4 sm:px-10">
+    <div className="flex min-h-dvh flex-col bg-[#FAFAFA]">
+      <header className="flex items-center justify-between border-b border-[#EBEBEB] bg-white px-6 py-4">
         <Logo />
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+        <div className="flex items-center gap-2 caption-3 text-[#73706D]">
           {['Welcome', 'Connect inbox'].map((s, i) => (
-            <span key={s} className={cx('flex items-center gap-1.5', i === step ? 'text-indigo-600' : '')}>
-              <span className={cx('flex h-5 w-5 items-center justify-center rounded-full text-[10px]', i <= step ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500')}>{i + 1}</span>
+            <span key={s} className={cx('flex items-center gap-2', i === step ? 'text-[#171717]' : '')}>
+              <span
+                className={cx(
+                  'caption-3 font-mono flex h-6 w-6 items-center justify-center rounded-full border',
+                  i <= step ? 'border-[#171717] bg-[#171717] text-white' : 'border-[#D4D4D8] bg-white text-[#73706D]'
+                )}
+              >
+                {i + 1}
+              </span>
               <span className="hidden sm:inline">{s}</span>
-              {i === 0 && <span className="mx-1 h-px w-6 bg-slate-300" />}
+              {i === 0 && <span className="mx-1 h-px w-6 bg-[#D4D4D8]" />}
             </span>
           ))}
         </div>
       </header>
 
-      <main className="flex flex-1 items-center justify-center px-5 pb-12">
+      <main className="flex flex-1 items-center justify-center px-4 py-12">
         <div className="w-full max-w-xl">
           {step === 0 ? (
-            <div className="animate-fade-up text-center">
-              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/30">
-                <Sparkles className="h-7 w-7" />
+            <div className="animate-fade-up rounded-2xl border border-[#EBEBEB] bg-white p-8 text-center">
+              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-xl border border-[#BFDBFE] bg-[#EBF5FF] text-[#0070F3]">
+                <Sparkles className="h-6 w-6" />
               </div>
-              <h1 className="font-display text-3xl font-extrabold text-slate-900 sm:text-4xl">Welcome, {user?.name?.split(' ')[0]}</h1>
-              <p className="mx-auto mt-3 max-w-md text-slate-500">Let’s get your first client’s inbox connected. It takes about a minute.</p>
+              <h1 className="heading-4 text-[#171717]">Welcome, {user?.name?.split(' ')[0]}</h1>
+              <p className="body-3 mx-auto mt-2 max-w-md text-[#4D4D4D]">
+                Connect your first executive mailbox so AI can sort incoming threads and draft replies.
+              </p>
               <ul className="mt-8 space-y-3 text-left">
                 {INTRO.map(({ icon: I, title, text }) => (
-                  <li key={title} className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  <li key={title} className="flex gap-4 rounded-xl border border-[#EBEBEB] bg-[#FAFAFA] p-4">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EBEBEB] bg-white text-[#0070F3]">
                       <I className="h-5 w-5" />
                     </span>
                     <span>
-                      <span className="block text-sm font-bold text-slate-900">{title}</span>
-                      <span className="block text-sm text-slate-500">{text}</span>
+                      <span className="title-4 block text-[#171717]">{title}</span>
+                      <span className="body-6 mt-0.5 block text-[#4D4D4D]">{text}</span>
                     </span>
                   </li>
                 ))}
@@ -63,7 +84,7 @@ export default function Onboarding() {
               </Button>
             </div>
           ) : (
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
+            <div className="rounded-2xl border border-[#EBEBEB] bg-white p-6 sm:p-8">
               <ConnectWizard onDone={finish} />
             </div>
           )}
